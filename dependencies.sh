@@ -6,6 +6,7 @@
 # List of packages to install
 packages=(
     "git"
+    "pkg-config"
     "cmake"
     "libmicrohttpd-dev"
     "libjansson-dev"
