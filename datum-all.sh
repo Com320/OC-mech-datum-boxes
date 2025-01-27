@@ -49,7 +49,7 @@ json_content=$(cat <<EOF
   },
   "logger": {
     "log_to_file": $(get_input "Log to file? (true/false)" true),
-    "log_file": "$(get_input "Enter log file path" "/home/bitcoin/datum/logs.txt")",
+    "log_file": "$(get_input "Enter log file path" "/home/bitcoin/datum/logs/logs.txt")",
     "log_level_file": $(get_input "Enter log level (0-3)" 0)
   },
   "datum": {
