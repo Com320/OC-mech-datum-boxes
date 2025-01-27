@@ -3,6 +3,7 @@
 echo ###CLONING AND COMPILING DATUM_GATEWAY
 sleep 2
 mkdir -p ~/datum/source-code
+mkdir ~/datum/logs
 cd ~/datum/source-code
 git clone https://github.com/OCEAN-xyz/datum_gateway
 cd datum_gateway
