@@ -1,0 +1,13 @@
+{
+    "logpath": "/home/bitcoin/datum_instlogs/",
+    "packages": [
+        "git",
+        "pkg-config",
+        "cmake",
+        "libmicrohttpd-dev",
+        "libjansson-dev",
+        "libcurl4-openssl-dev",
+        "libsodium-dev",
+        "psmisc"
+    ]
+}
