@@ -2,7 +2,6 @@
 # Script is part of a larger project, it installs dependencies for the project.
 # This script should not be run on its own, this is part of main.sh.
 #   It reads settings from a settings.json file in the same directory
-# Run this script with sudo privileges
 
 # Global Variables & Settings
 SETTINGS_FILE="$(dirname "$0")/settings.json"
