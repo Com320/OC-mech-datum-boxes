@@ -8,6 +8,20 @@
         "libjansson-dev",
         "libcurl4-openssl-dev",
         "libsodium-dev",
-        "psmisc"
+        "psmisc",
+        "build-essential",
+        "libtool",
+        "autotools-dev",
+        "automake",
+        "pkg-config",
+        "bsdmainutils",
+        "python3",
+        "libevent-dev",
+        "libboost-dev",
+        "libsqlite3-dev",
+        "libminiupnpc-dev",
+        "libnatpmp-dev",
+        "libzmq3-dev",
+        "systemtap-sdt-dev"
     ]
 }
