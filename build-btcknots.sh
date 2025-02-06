@@ -53,7 +53,13 @@ else
 fi
 
 # Change directory into the repository
-cd bitcoin || { log "Failed to change directory to bitcoin/"; exit 1; }
+log "Changing directory to bitcoin..."
+if cd bitcoin; then
+    log "Changed directory successfully. Current directory: $(pwd)"
+else
+    log "Failed to change directory to bitcoin/."
+    exit 1
+fi
 
 # Run autogen.sh
 log "Running autogen.sh..."
