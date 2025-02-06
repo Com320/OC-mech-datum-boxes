@@ -79,6 +79,7 @@ done
 
 if [ "$error_occurred" -eq 1 ]; then
     log "Installation process completed, but with errors, see log"
+    exit 1
 else
     log "Installation process completed."
 fi
