@@ -32,4 +32,31 @@ else
     exit 1
 fi
 
+echo "Generating Bitcoin configuration..."
+"$SCRIPT_DIR/bitcoin-conf-generator.sh"
+if [ $? -eq 0 ]; then
+    echo "Bitcoin configuration generated successfully."
+else
+    echo "Bitcoin configuration generation failed. Exiting."
+    exit 1
+fi
+
+echo "Generating Bitcoin service..."
+"$SCRIPT_DIR/generate-bitcoin-service.sh"
+if [ $? -eq 0 ]; then
+    echo "Bitcoin service generated successfully."
+else
+    echo "Bitcoin service generation failed. Exiting."
+    exit 1
+fi
+
+echo "Generating Datum service..."
+"$SCRIPT_DIR/generate-datum-service.sh"
+if [ $? -eq 0 ]; then
+    echo "Datum service generated successfully."
+else
+    echo "Datum service generation failed. Exiting."
+    exit 1
+fi
+
 echo "Process completed successfully."
