@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Define colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
@@ -72,8 +77,8 @@ EOF
 
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
-    echo "File 'bitcoin.conf' has been updated successfully."
+    echo -e "${GREEN}File 'bitcoin.conf' has been updated successfully.${NC}"
 else
-    echo "An error occurred while updating the file."
+    echo -e "${RED}An error occurred while updating the file.${NC}"
     exit 1
 fi
