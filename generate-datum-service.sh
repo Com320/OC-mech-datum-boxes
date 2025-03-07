@@ -3,22 +3,60 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Prompt the user for input
-while true; do
-    read -p "Enter the text to replace 'defaultuser' with: " user_input
+# Get username from settings.json
+SETTINGS_FILE="$(dirname "$0")/settings.json"
+if [ ! -f "$SETTINGS_FILE" ]; then
+    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
+    exit 1
+fi
 
-    echo "You entered: $user_input"
+# Get username from settings.json
+username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$username" ]; then
+    echo -e "${RED}Could not determine username from settings.json.${NC}"
+    
+    # Prompt the user for input if we can't get it from settings
+    while true; do
+        read -p "Enter the username for the service: " user_input
+
+        echo "You entered: $user_input"
+        read -p "Is this correct? (y/n): " confirm
+        if [[ "$confirm" == "y" ]]; then
+            username=$user_input
+            break
+        fi
+        echo "Let's try again."
+        echo
+    done
+else
+    echo "Using username from settings.json: $username"
     read -p "Is this correct? (y/n): " confirm
-    if [[ "$confirm" == "y" ]]; then
-        break
+    if [[ "$confirm" != "y" ]]; then
+        # Let the user override the settings.json value
+        while true; do
+            read -p "Enter the username for the service: " user_input
+
+            echo "You entered: $user_input"
+            read -p "Is this correct? (y/n): " confirm
+            if [[ "$confirm" == "y" ]]; then
+                username=$user_input
+                break
+            fi
+            echo "Let's try again."
+            echo
+        done
     fi
-    echo "Let's try again."
-    echo
-done
+fi
 
 # Sanity check input
-if [ -z "$user_input" ]; then
-    echo -e "${RED}User input must be provided. Exiting.${NC}"
+if [ -z "$username" ]; then
+    echo -e "${RED}Username must be provided. Exiting.${NC}"
+    exit 1
+fi
+
+# Check if the user exists
+if ! id "$username" &>/dev/null; then
+    echo -e "${RED}User $username does not exist. Please create the user first.${NC}"
     exit 1
 fi
 
@@ -30,10 +68,10 @@ After=network.target
 
 [Service]
 LimitNOFILE=65535
-ExecStart=/home/$user_input/datum/src/datum_gateway/datum_gateway --config=/home/$user_input/datum/datum_gateway_config.json
+ExecStart=/home/$username/datum/bin/datum_gateway --config=/home/$username/datum/datum_gateway_config.json
 Restart=always
-User=$user_input
-Group=$user_input
+User=$username
+Group=$username
 
 [Install]
 WantedBy=multi-user.target
@@ -42,6 +80,17 @@ EOF
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}File 'datum.service' has been created and user inserted correctly.${NC}"
+    
+    # Enable and start the service if requested
+    read -p "Do you want to enable and start the service now? (y/n): " start_service
+    if [[ "$start_service" == "y" ]]; then
+        sudo systemctl daemon-reload
+        sudo systemctl enable datum.service
+        sudo systemctl start datum.service
+        echo -e "${GREEN}Service enabled and started.${NC}"
+    else
+        echo "You can manually start the service with: sudo systemctl start datum.service"
+    fi
 else
     echo -e "${RED}An error occurred while creating or editing the file.${NC}"
     exit 1

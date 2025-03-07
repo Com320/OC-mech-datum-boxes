@@ -5,6 +5,27 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Global Variables & Settings
+SETTINGS_FILE="$(dirname "$0")/settings.json"
+if [ ! -f "$SETTINGS_FILE" ]; then
+    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
+    exit 1
+fi
+
+# Get username from settings.json
+username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$username" ]; then
+    echo -e "${RED}Could not determine username from settings.json.${NC}"
+    username="bitcoin"  # Default username
+fi
+
+# Get user's home directory
+user_home=$(eval echo ~"$username")
+if [ ! -d "$user_home" ]; then
+    echo -e "${RED}User home directory for $username not found.${NC}"
+    exit 1
+fi
+
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
@@ -21,10 +42,18 @@ confirm_input() {
     return 0
 }
 
+# Prepare default values
+default_conf="$user_home/bitcoin/bitcoin.conf"
+default_data="$user_home/bitcoin/data"
+
+# Show current user being used
+echo -e "Using configuration for user: ${GREEN}$username${NC}"
+echo -e "Home directory: ${GREEN}$user_home${NC}"
+
 # Prompt the user for their inputs
 while true; do
-    user_input1=$(get_input "Enter location for bitcoin.conf" "/home/bitcoin/bitcoin.conf")
-    user_input2=$(get_input "Enter location for data" "/home/bitcoin/data")
+    user_input1=$(get_input "Enter location for bitcoin.conf" "$default_conf")
+    user_input2=$(get_input "Enter location for data" "$default_data")
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
     user_input5=$(get_input "Enter value for 'rpcauth'" "user:password")
@@ -44,8 +73,21 @@ while true; do
     echo
 done
 
-# Create or overwrite file.txt with sudo
-sudo bash -c "cat > $user_input1/bitcoin.conf" << EOF
+# Create directory for the bitcoin.conf file if it doesn't exist
+conf_dir=$(dirname "$user_input1")
+if [ ! -d "$conf_dir" ]; then
+    mkdir -p "$conf_dir"
+    chown -R "$username:$username" "$conf_dir"
+fi
+
+# Create the data directory if it doesn't exist
+if [ ! -d "$user_input2" ]; then
+    mkdir -p "$user_input2"
+    chown -R "$username:$username" "$user_input2"
+fi
+
+# Create or overwrite bitcoin.conf
+sudo bash -c "cat > $user_input1" << EOF
 datadir=$user_input2
 upnp=0
 listen=1
@@ -75,10 +117,13 @@ dbcache=$user_input4
 rpcauth=$user_input5
 EOF
 
+# Set ownership
+chown "$username:$username" "$user_input1"
+
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}File 'bitcoin.conf' has been updated successfully.${NC}"
+    echo -e "${GREEN}File 'bitcoin.conf' has been created at $user_input1 successfully.${NC}"
 else
-    echo -e "${RED}An error occurred while updating the file.${NC}"
+    echo -e "${RED}An error occurred while creating the file.${NC}"
     exit 1
 fi

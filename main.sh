@@ -27,6 +27,17 @@ track_error() {
   return 0
 }
 
+# Ensure the script is run as root/sudo
+if [ "$(id -u)" -ne 0 ]; then
+  echo -e "${RED}This script must be run as root or with sudo privileges.${NC}"
+  exit 1
+fi
+
+# Set up the user from settings.json
+echo "Setting up user..."
+"$SCRIPT_DIR/user-setup.sh"
+track_error "User setup" $?
+
 echo "Installing dependencies..."
 "$SCRIPT_DIR/dependencies.sh"
 track_error "Dependencies installation" $?

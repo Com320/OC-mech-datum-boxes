@@ -1,5 +1,9 @@
 {
-    "logpath": "/home/bitcoin/datum_instlogs/",
+    "user": {
+        "username": "bitcoin",
+        "create_if_not_exists": true
+    },
+    "logpath": "datum_instlogs",
     "packages": [
         "git",
         "pkg-config",
