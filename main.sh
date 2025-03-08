@@ -54,6 +54,10 @@ echo "Generating Bitcoin configuration..."
 "$SCRIPT_DIR/bitcoin-conf-generator.sh"
 track_error "Bitcoin configuration generation" $?
 
+echo "Generating Datum configuration..."
+"$SCRIPT_DIR/datum-config-generator.sh"
+track_error "Datum configuration generation" $?
+
 echo "Generating Bitcoin service..."
 "$SCRIPT_DIR/generate-bitcoin-service.sh"
 track_error "Bitcoin service generation" $?
