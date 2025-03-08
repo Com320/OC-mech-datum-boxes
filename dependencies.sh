@@ -82,7 +82,7 @@ log "Starting installation process..."
 
 # Update package lists
 log "Updating package lists..."
-if sudo apt-get update 2>&1 | tee -a "$LOG_FILE"; then
+if apt-get update 2>&1 | tee -a "$LOG_FILE"; then
     log "Package lists updated successfully."
 else
     log "Failed to update package lists."
@@ -93,7 +93,7 @@ fi
 log "Installing packages..."
 for package in "${PACKAGES[@]}"; do
     log "Installing $package..."
-    if sudo apt-get install -y "$package" 2>&1 | tee -a "$LOG_FILE"; then
+    if apt-get install -y "$package" 2>&1 | tee -a "$LOG_FILE"; then
         log "$package installed successfully."
     else
         log "Failed to install $package."
