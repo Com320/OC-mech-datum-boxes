@@ -40,10 +40,19 @@ fi
 
 # Get logpath from settings.json
 logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
-if [ ! -d "$logpath" ]; then
-    mkdir -p "$logpath" || { echo -e "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
-    chown -R "$username:$username" "$logpath"
+if [[ "$logpath" != /* ]]; then
+    # If logpath is not absolute, prepend user's home directory
+    logpath="$user_home/$logpath"
 fi
+
+# Create log directory and set ownership
+mkdir -p "$logpath"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to create log directory at $logpath${NC}"
+    exit 1
+fi
+chown -R "$username:$username" "$logpath"
+
 LOG_FILE="${logpath}/build_datum.log"
 
 # Log function (writes messages with a timestamp)

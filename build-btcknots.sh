@@ -44,10 +44,13 @@ if [[ "$logpath" != /* ]]; then
     logpath="$user_home/$logpath"
 fi
 
-if [ ! -d "$logpath" ]; then
-    mkdir -p "$logpath" || { echo -e "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
-    chown -R "$username:$username" "$logpath"
+# Create log directory and set ownership
+mkdir -p "$logpath"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to create log directory at $logpath${NC}"
+    exit 1
 fi
+chown -R "$username:$username" "$logpath"
 
 LOG_FILE="${logpath}/build_btcknots.log"
 

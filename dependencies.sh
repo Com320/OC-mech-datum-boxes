@@ -3,10 +3,15 @@
 # This script should not be run on its own, this is part of main.sh.
 #   It reads settings from a settings.json file in the same directory
 
+# Define colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
 # Global Variables & Settings
 SETTINGS_FILE="$(dirname "$0")/settings.json"
 if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "Settings file not found at $SETTINGS_FILE"
+    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
     exit 1
 fi
 
@@ -26,12 +31,31 @@ read_json_array() {
     sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
 }
 
+# Get username from settings.json
+username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$username" ]; then
+    echo -e "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
+    username="bitcoin"
+fi
+
+# Get user's home directory
+user_home=$(eval echo ~"$username")
+if [ ! -d "$user_home" ]; then
+    echo -e "${RED}User home directory for $username not found.${NC}"
+    exit 1
+fi
+
 # Read settings from JSON
 logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
+if [[ "$logpath" != /* ]]; then
+    # If logpath is not absolute, prepend user's home directory
+    logpath="$user_home/$logpath"
+fi
 
 # Create log directory if it doesn't exist
 if [ ! -d "$logpath" ]; then
-    mkdir -p "$logpath" || { echo "Unable to create log directory at $logpath"; exit 1; }
+    mkdir -p "$logpath" || { echo -e "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
+    chown -R "$username:$username" "$logpath"
 fi
 LOG_FILE="${logpath}/depend_inst.log"
 
