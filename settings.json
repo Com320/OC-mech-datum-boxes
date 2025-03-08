@@ -27,6 +27,7 @@
         "libnatpmp-dev",
         "libzmq3-dev",
         "systemtap-sdt-dev",
-        "sudo"
+        "sudo",
+        "vim"
     ]
 }
