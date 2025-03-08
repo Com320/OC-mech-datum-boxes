@@ -26,6 +26,7 @@
         "libminiupnpc-dev",
         "libnatpmp-dev",
         "libzmq3-dev",
-        "systemtap-sdt-dev"
+        "systemtap-sdt-dev",
+        "sudo"
     ]
 }
