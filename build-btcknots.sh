@@ -120,9 +120,9 @@ else
     exit 1
 fi
 
-# Run configure with --disable-wallet option
+# Run configure with --disable-wallet --with-zmq=no options
 log "Running configure with --disable-wallet..."
-if su - "$username" -c "cd $bitcoin_src && ./configure --disable-wallet --prefix=$bitcoin_dir" 2>&1 | tee -a "$LOG_FILE"; then
+if su - "$username" -c "cd $bitcoin_src && ./configure --with-zmq=no --disable-wallet --prefix=$bitcoin_dir" 2>&1 | tee -a "$LOG_FILE"; then
     log "Configure completed successfully."
 else
     log "Configure failed."
