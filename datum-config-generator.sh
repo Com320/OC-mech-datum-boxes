@@ -3,6 +3,7 @@
 # Define colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Global Variables & Settings
@@ -34,10 +35,9 @@ default_rpc_password=""
 # Extract RPC username and password from rpcinfo.bin
 if [ -f "$rpcinfo_file" ]; then
     echo -e "${GREEN}Found RPC authentication info:${NC}"
-    rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file" | head -n 1)
-    echo -e "${GREEN}$rpcauth_line${NC}"
     
     # Extract the username from rpcauth line (format is rpcauth=username:hash)
+    rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file" | head -n 1)
     default_rpc_user=$(echo "$rpcauth_line" | cut -d'=' -f2 | cut -d':' -f1)
     
     # Extract the password - it's on the line after "Your password:"
@@ -48,7 +48,13 @@ if [ -f "$rpcinfo_file" ]; then
         if [ -n "$pwd_line_num" ]; then
             next_line=$((pwd_line_num + 1))
             default_rpc_password=$(sed -n "${next_line}p" "$rpcinfo_file")
-            echo -e "${GREEN}Found RPC password in rpcinfo.bin${NC}"
+            
+            # Display clear RPC credential information at the top
+            echo -e "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
+            echo -e "RPC Username: ${GREEN}$default_rpc_user${NC}"
+            echo -e "RPC Password: ${GREEN}$default_rpc_password${NC}"
+            echo -e "${YELLOW}=======================================${NC}"
+            echo
         else
             echo -e "${RED}Could not extract password line number from rpcinfo.bin${NC}"
         fi
@@ -173,6 +179,15 @@ chown "$username:$username" "$filename"
 # Check if file was created successfully
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}File '$filename' created successfully.${NC}"
+    
+    # Remind user of the RPC credentials after configuration is created
+    if [ -n "$default_rpc_password" ]; then
+        echo
+        echo -e "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
+        echo -e "RPC Username: ${GREEN}$default_rpc_user${NC}"
+        echo -e "RPC Password: ${GREEN}$default_rpc_password${NC}"
+        echo -e "${YELLOW}=======================================${NC}"
+    fi
 else
     echo -e "${RED}An error occurred while creating the file.${NC}"
     exit 1

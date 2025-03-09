@@ -33,8 +33,10 @@ if [ -f "$rpcinfo_file" ]; then
     # Extract the line that starts with "rpcauth="
     rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file")
     if [ -n "$rpcauth_line" ]; then
+        # Extract just the value after "rpcauth="
+        rpcauth_value=$(echo "$rpcauth_line" | cut -d'=' -f2)
         echo -e "${GREEN}$rpcauth_line${NC}"
-        default_rpcauth="$rpcauth_line"
+        default_rpcauth="$rpcauth_value"
     else
         echo -e "${RED}Could not find rpcauth line in $rpcinfo_file${NC}"
         default_rpcauth="username:salt$hash"
