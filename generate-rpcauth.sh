@@ -76,14 +76,29 @@ chmod 600 "$user_home/rpcinfo.bin" # Restrictive permissions
 
 # Extract the authentication line and password for display only
 rpcauth_line=$(echo "$rpc_output" | grep "^rpcauth=" | head -n 1)
-rpc_password=$(echo "$rpc_output" | grep "^Your password:" | sed 's/Your password://' | tr -d '[:space:]')
 
+# Extract the password - it's on the line after "Your password:"
+if grep -q "^Your password:" <<< "$rpc_output"; then
+    # Find the line number with "Your password:"
+    pwd_line_num=$(grep -n "^Your password:" <<< "$rpc_output" | cut -d':' -f1)
+    # Get the next line (actual password)
+    if [ -n "$pwd_line_num" ]; then
+        next_line=$((pwd_line_num + 1))
+        rpc_password=$(sed -n "${next_line}p" <<< "$rpc_output")
+    fi
+fi
+
+# Display the auth info for user reference
 echo -e "${GREEN}RPC authentication details generated and saved to $user_home/rpcinfo.bin${NC}"
 echo -e "${GREEN}These credentials will be used by both Bitcoin and DATUM config generators${NC}"
 echo
 echo -e "RPC Auth Line: ${GREEN}$rpcauth_line${NC}"
 echo -e "RPC Username: ${GREEN}$rpc_username${NC}"
-echo -e "RPC Password: ${GREEN}$rpc_password${NC}"
+if [ -n "$rpc_password" ]; then
+    echo -e "RPC Password: ${GREEN}$rpc_password${NC}"
+else
+    echo -e "${RED}Could not extract password from output.${NC}"
+fi
 echo
 echo -e "${RED}IMPORTANT: Save this information!${NC}"
 

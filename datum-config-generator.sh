@@ -40,13 +40,20 @@ if [ -f "$rpcinfo_file" ]; then
     # Extract the username from rpcauth line (format is rpcauth=username:hash)
     default_rpc_user=$(echo "$rpcauth_line" | cut -d'=' -f2 | cut -d':' -f1)
     
-    # Extract the password from the "Your password:" line
-    default_rpc_password=$(grep "Your password:" "$rpcinfo_file" | sed 's/Your password://' | tr -d '[:space:]')
-    
-    if [ -n "$default_rpc_password" ]; then
-        echo -e "${GREEN}Found RPC password in rpcinfo.bin${NC}"
+    # Extract the password - it's on the line after "Your password:"
+    if grep -q "^Your password:" "$rpcinfo_file"; then
+        # Find the line number with "Your password:"
+        pwd_line_num=$(grep -n "^Your password:" "$rpcinfo_file" | cut -d':' -f1)
+        # Get the next line (actual password)
+        if [ -n "$pwd_line_num" ]; then
+            next_line=$((pwd_line_num + 1))
+            default_rpc_password=$(sed -n "${next_line}p" "$rpcinfo_file")
+            echo -e "${GREEN}Found RPC password in rpcinfo.bin${NC}"
+        else
+            echo -e "${RED}Could not extract password line number from rpcinfo.bin${NC}"
+        fi
     else
-        echo -e "${RED}RPC password not found in rpcinfo.bin. You'll need to provide the password.${NC}"
+        echo -e "${RED}Could not find 'Your password:' line in rpcinfo.bin${NC}"
     fi
 else
     echo -e "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
