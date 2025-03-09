@@ -37,7 +37,7 @@ if [ ! -d "$btc_src_dir" ]; then
 fi
 
 # Path to the rpcauth.py script
-rpcauth_script="$btc_src_dir/share/rpcauth/rpcauth.py"
+rpcauth_script="$btc_src_dir/bitcoin/share/rpcauth/rpcauth.py"
 if [ ! -f "$rpcauth_script" ]; then
     echo -e "${RED}rpcauth.py script not found at $rpcauth_script${NC}"
     exit 1
