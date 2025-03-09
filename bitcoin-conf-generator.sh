@@ -26,6 +26,24 @@ if [ ! -d "$user_home" ]; then
     exit 1
 fi
 
+# Check for RPC info file
+rpcinfo_file="$user_home/rpcinfo.bin"
+if [ -f "$rpcinfo_file" ]; then
+    echo -e "${GREEN}Found RPC authentication info:${NC}"
+    # Extract the line that starts with "rpcauth="
+    rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file")
+    if [ -n "$rpcauth_line" ]; then
+        echo -e "${GREEN}$rpcauth_line${NC}"
+        default_rpcauth="$rpcauth_line"
+    else
+        echo -e "${RED}Could not find rpcauth line in $rpcinfo_file${NC}"
+        default_rpcauth="username:salt$hash"
+    fi
+else
+    echo -e "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
+    default_rpcauth="username:salt$hash"
+fi
+
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
@@ -43,8 +61,8 @@ confirm_input() {
 }
 
 # Prepare default values
-default_conf="$user_home/bitcoin/bitcoin.conf"
-default_data="$user_home/bitcoin/data"
+default_conf="$user_home/.bitcoin/bitcoin.conf"
+default_data="$user_home/.bitcoin/data"
 
 # Show current user being used
 echo -e "Using configuration for user: ${GREEN}$username${NC}"
@@ -56,7 +74,7 @@ while true; do
     user_input2=$(get_input "Enter location for data" "$default_data")
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
-    user_input5=$(get_input "Enter value for 'rpcauth'" "user:password")
+    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")
 
     echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"

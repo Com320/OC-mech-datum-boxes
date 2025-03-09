@@ -26,6 +26,32 @@ if [ ! -d "$user_home" ]; then
     exit 1
 fi
 
+# Check for RPC information
+rpcinfo_file="$user_home/rpcinfo.bin"
+default_rpc_user="datumuser"
+default_rpc_password=""
+
+# Extract RPC username and password from rpcinfo.bin
+if [ -f "$rpcinfo_file" ]; then
+    echo -e "${GREEN}Found RPC authentication info:${NC}"
+    rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file" | head -n 1)
+    echo -e "${GREEN}$rpcauth_line${NC}"
+    
+    # Extract the username from rpcauth line (format is rpcauth=username:hash)
+    default_rpc_user=$(echo "$rpcauth_line" | cut -d'=' -f2 | cut -d':' -f1)
+    
+    # Extract the password from the "Your password:" line
+    default_rpc_password=$(grep "Your password:" "$rpcinfo_file" | sed 's/Your password://' | tr -d '[:space:]')
+    
+    if [ -n "$default_rpc_password" ]; then
+        echo -e "${GREEN}Found RPC password in rpcinfo.bin${NC}"
+    else
+        echo -e "${RED}RPC password not found in rpcinfo.bin. You'll need to provide the password.${NC}"
+    fi
+else
+    echo -e "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
+fi
+
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
@@ -62,8 +88,8 @@ while true; do
 {
   "bitcoind": {
     "rpcurl": "$(get_input "Enter bitcoind rpcurl" "localhost:28332")",
-    "rpcuser": "$(get_input "Enter bitcoind rpcuser" "datumuser")",
-    "rpcpassword": "$(get_input "Enter bitcoind rpcpassword" "")",
+    "rpcuser": "$(get_input "Enter bitcoind rpcuser" "$default_rpc_user")",
+    "rpcpassword": "$(get_input "Enter bitcoind rpcpassword" "$default_rpc_password")",
     "work_update_seconds": $(get_input "Enter work_update_seconds" 40)
   },
   "stratum": {

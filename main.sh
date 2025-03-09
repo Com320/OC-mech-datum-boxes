@@ -50,6 +50,10 @@ echo "Building Datum Gateway..."
 "$SCRIPT_DIR/build-datum.sh"
 track_error "Datum Gateway build" $?
 
+echo "Generating RPC authentication..."
+"$SCRIPT_DIR/generate-rpcauth.sh"
+track_error "RPC authentication generation" $?
+
 echo "Generating Bitcoin configuration..."
 "$SCRIPT_DIR/bitcoin-conf-generator.sh"
 track_error "Bitcoin configuration generation" $?
