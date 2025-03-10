@@ -19,6 +19,7 @@ This project provides a collection of shell scripts that automate the process of
 - `dependencies.sh` - Installs all required system dependencies
 - `build-btcknots.sh` - Builds Bitcoin Knots from source
 - `build-datum.sh` - Builds DATUM Gateway from source
+- `generate-rpcauth.sh` - Generates RPC authentication credentials
 - `bitcoin-conf-generator.sh` - Generates the Bitcoin configuration file
 - `datum-config-generator.sh` - Generates the DATUM Gateway configuration
 - `generate-bitcoin-service.sh` - Creates a systemd service for Bitcoin
@@ -37,16 +38,16 @@ This project provides a collection of shell scripts that automate the process of
 ## Requirements
 
 - A Debian-based Linux distribution (Ubuntu, Debian, etc.)
-- Root/sudo privileges
+- Root privileges (not sudo)
 - Internet connection for downloading dependencies and source code
 - Sufficient disk space for the Bitcoin blockchain
 
 ## Configuration
 
 The `settings.json` file contains key configuration parameters:
-- User account settings
+- User account settings (username and creation options)
 - Log directory path
-- Required system packages
+- Required system packages for building and running the services
 
 Please review and customize this file before running the scripts.
 
