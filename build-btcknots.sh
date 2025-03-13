@@ -23,6 +23,20 @@ read_json_value() {
     sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
 }
 
+# Read the CPU cores setting (default to 4 if not found)
+cpu_cores=$(grep -o '"cpu_cores": *[0-9]*' "$SETTINGS_FILE" | grep -o '[0-9]*')
+if [ -z "$cpu_cores" ]; then
+    echo -e "${RED}Could not determine cpu_cores from settings.json. Using default '4'.${NC}"
+    cpu_cores=4
+fi
+
+# Read Bitcoin Knots tag to checkout (default to v28.1.knots20250305 if not found)
+bitcoin_knots_tag=$(grep -o '"bitcoin_knots_tag": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$bitcoin_knots_tag" ]; then
+    echo -e "${RED}Could not determine bitcoin_knots_tag from settings.json. Using default 'v28.1.knots20250305'.${NC}"
+    bitcoin_knots_tag="v28.1.knots20250305"
+fi
+
 # Get username from settings.json
 username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
 if [ -z "$username" ]; then
@@ -62,6 +76,8 @@ log() {
 
 # Main Execution
 log "Starting Bitcoin Knots build process..."
+log "Using Bitcoin Knots tag: $bitcoin_knots_tag"
+log "Using $cpu_cores CPU cores for build"
 
 # Create directories
 bitcoin_dir="$user_home/bitcoin"
@@ -111,6 +127,15 @@ bitcoin_src="$src_dir/bitcoin"
 log "Changing directory to bitcoin..."
 cd "$bitcoin_src" || { log "Failed to change directory to bitcoin/"; exit 1; }
 
+# Checkout the specified tag
+log "Checking out tag: $bitcoin_knots_tag..."
+if su - "$username" -c "cd $bitcoin_src && git checkout $bitcoin_knots_tag" 2>&1 | tee -a "$LOG_FILE"; then
+    log "Tag checkout completed successfully."
+else
+    log "Tag checkout failed. The specified tag may not exist."
+    exit 1
+fi
+
 # Run autogen.sh
 log "Running autogen.sh..."
 if su - "$username" -c "cd $bitcoin_src && ./autogen.sh" 2>&1 | tee -a "$LOG_FILE"; then
@@ -129,9 +154,9 @@ else
     exit 1
 fi
 
-# Run make
-log "Running make..."
-if su - "$username" -c "cd $bitcoin_src && make" 2>&1 | tee -a "$LOG_FILE"; then
+# Run make with the specified number of CPU cores
+log "Running make -j$cpu_cores..."
+if su - "$username" -c "cd $bitcoin_src && make -j$cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
     log "make completed successfully."
 else
     log "make failed."
