@@ -8,6 +8,10 @@
         "cpu_cores": 4,
         "bitcoin_knots_tag": "v28.1.knots20250305"
     },
+    "datum_options": {
+        "coinbase_tag_primary": "DATUM",
+        "coinbase_tag_secondary": ""
+    },
     "packages": [
         "git",
         "pkg-config",

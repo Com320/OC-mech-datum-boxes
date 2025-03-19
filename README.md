@@ -47,6 +47,12 @@ This project provides a collection of shell scripts that automate the process of
 The `settings.json` file contains key configuration parameters:
 - User account settings (username and creation options)
 - Log directory path
+- Build options:
+  - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
+  - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
+- DATUM options:
+  - `coinbase_tag_primary`: Primary coinbase tag (default: DATUM)
+  - `coinbase_tag_secondary`: Secondary coinbase tag (default: empty)
 - Required system packages for building and running the services
 
 Please review and customize this file before running the scripts.
