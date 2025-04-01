@@ -167,3 +167,30 @@ else
     log "Failed to clone Bitcoin Knots repository."
     exit 1
 fi
+
+# Change directory into the repository
+bitcoin_src="$src_dir/bitcoin"
+log "Changing directory to bitcoin..."
+cd "$bitcoin_src" || { log "Failed to change directory to bitcoin/"; exit 1; }
+
+# Checkout the specified tag
+log "Checking out tag: $bitcoin_knots_tag..."
+if su - "$username" -c "cd $bitcoin_src && git fetch --tags && git checkout $bitcoin_knots_tag" 2>&1 | tee -a "$LOG_FILE"; then
+    log "Tag checkout completed successfully."
+else
+    log "Tag checkout failed. The specified tag may not exist."
+    exit 1
+fi
+
+# Verify tag signature if enabled
+if [ "$verify_signatures" = true ]; then
+    if verify_git_tag "$bitcoin_src" "$bitcoin_knots_tag" "$key_fingerprint"; then
+        log "Signature verification passed. Proceeding with build."
+    else
+        log "Signature verification failed. Aborting build for security reasons."
+        exit 1
+    fi
+fi
+
+# Run autogen.sh
+log "Running autogen.sh..."
