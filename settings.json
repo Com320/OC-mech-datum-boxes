@@ -6,7 +6,9 @@
     "logpath": "datum_instlogs",
     "build_options": {
         "cpu_cores": 4,
-        "bitcoin_knots_tag": "v28.1.knots20250305"
+        "bitcoin_knots_tag": "v28.1.knots20250305",
+        "verify_signatures": true,
+        "key_fingerprint": "1A3E761F19D2CC7785C5502EA291A2C45D0C504A"
     },
     "datum_options": {
         "coinbase_tag_primary": "DATUM",
@@ -36,6 +38,7 @@
         "libzmq3-dev",
         "systemtap-sdt-dev",
         "sudo",
-        "vim"
+        "vim",
+        "gnupg"
     ]
 }

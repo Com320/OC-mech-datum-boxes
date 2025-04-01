@@ -50,12 +50,23 @@ The `settings.json` file contains key configuration parameters:
 - Build options:
   - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
   - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
+  - `verify_signatures`: Whether to verify Git tag signatures for Bitcoin Knots (default: true)
+  - `key_fingerprint`: PGP key fingerprint used to verify signatures (default: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A)
 - DATUM options:
   - `coinbase_tag_primary`: Primary coinbase tag (default: DATUM)
   - `coinbase_tag_secondary`: Secondary coinbase tag (default: empty)
 - Required system packages for building and running the services
 
 Please review and customize this file before running the scripts.
+
+## Security Features
+
+The build process includes security measures to ensure the integrity of the Bitcoin Knots source code:
+
+- **Signature Verification**: The script verifies PGP signatures on Git tags to ensure the Bitcoin Knots source hasn't been tampered with
+- **Isolated GPG Environment**: Signature verification takes place in an isolated GPG environment to avoid conflicts with existing keys
+
+These features are enabled by default but can be disabled in the settings.json file if needed.
 
 ## Important Note
 

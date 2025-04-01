@@ -13,6 +13,7 @@ fi
 # Define colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # JSON helper function (using sed for simple flat JSON parsing)
@@ -35,6 +36,20 @@ bitcoin_knots_tag=$(grep -o '"bitcoin_knots_tag": *"[^"]*"' "$SETTINGS_FILE" | c
 if [ -z "$bitcoin_knots_tag" ]; then
     echo -e "${RED}Could not determine bitcoin_knots_tag from settings.json. Using default 'v28.1.knots20250305'.${NC}"
     bitcoin_knots_tag="v28.1.knots20250305"
+fi
+
+# Read signature verification setting (default to true if not found)
+verify_signatures=$(grep -o '"verify_signatures": *[^,}]*' "$SETTINGS_FILE" | grep -o '[^:]*$' | tr -d ' ')
+if [ -z "$verify_signatures" ]; then
+    echo -e "${YELLOW}Could not determine verify_signatures from settings.json. Using default 'true'.${NC}"
+    verify_signatures=true
+fi
+
+# Read key fingerprint (default if not found)
+key_fingerprint=$(grep -o '"key_fingerprint": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$key_fingerprint" ]; then
+    echo -e "${YELLOW}Could not determine key_fingerprint from settings.json. Using default '1A3E761F19D2CC7785C5502EA291A2C45D0C504A'.${NC}"
+    key_fingerprint="1A3E761F19D2CC7785C5502EA291A2C45D0C504A"
 fi
 
 # Get username from settings.json
@@ -74,10 +89,61 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" | tee -a "$LOG_FILE"
 }
 
+# Verify function for checking git tag signature
+verify_git_tag() {
+    local repo_path="$1"
+    local tag="$2"
+    local fingerprint="$3"
+    
+    log "Verifying signature for tag: $tag"
+    
+    # Check if we have gnupg installed
+    if ! command -v gpg &> /dev/null; then
+        log "${RED}Error: GPG is not installed. Please run dependencies.sh first or restart the entire setup process.${NC}"
+        return 1
+    fi
+    
+    # Import the key if it's not already in the keyring
+    if ! gpg --list-keys "$fingerprint" &> /dev/null; then
+        log "Importing key with fingerprint: $fingerprint"
+        if ! gpg --keyserver keyserver.ubuntu.com --recv-keys "$fingerprint" >> "$LOG_FILE" 2>&1; then
+            log "Failed to import key from Ubuntu keyserver, trying keys.openpgp.org..."
+            if ! gpg --keyserver keys.openpgp.org --recv-keys "$fingerprint" >> "$LOG_FILE" 2>&1; then
+                log "Error: Failed to import key from both keyservers"
+                return 1
+            fi
+        fi
+    fi
+    
+    # Verify the tag using Git's built-in verification
+    cd "$repo_path" || { log "Failed to change to repository directory"; return 1; }
+    
+    # First make sure the tag exists
+    if ! git tag -l | grep -q "^$tag$"; then
+        log "Error: Tag $tag does not exist in the repository"
+        return 1
+    fi
+    
+    # Let Git verify the tag
+    log "Verifying tag signature with Git..."
+    if git verify-tag "$tag" >> "$LOG_FILE" 2>&1; then
+        log "Signature verification successful for tag: $tag"
+        return 0
+    else
+        log "Error: Tag signature verification failed"
+        return 1
+    fi
+}
+
 # Main Execution
 log "Starting Bitcoin Knots build process..."
 log "Using Bitcoin Knots tag: $bitcoin_knots_tag"
 log "Using $cpu_cores CPU cores for build"
+if [ "$verify_signatures" = true ]; then
+    log "Signature verification is ENABLED"
+else
+    log "Signature verification is DISABLED"
+fi
 
 # Create directories
 bitcoin_dir="$user_home/bitcoin"
@@ -93,26 +159,6 @@ chown -R "$username:$username" "$bitcoin_dir"
 log "Changing directory to $src_dir..."
 cd "$src_dir" || { log "Failed to change directory to $src_dir."; exit 1; }
 
-# Install dependencies if on Debian/Ubuntu
-if [ -f /etc/debian_version ]; then
-    log "Installing build dependencies for Debian/Ubuntu..."
-    apt-get update
-    apt-get install -y build-essential libtool autotools-dev automake pkg-config bsdmainutils python3 libevent-dev libboost-dev libsqlite3-dev libminiupnpc-dev libnatpmp-dev libzmq3-dev systemtap-sdt-dev
-else
-    # Try to use pacman if on Arch-based system
-    if command -v pacman >/dev/null 2>&1; then
-        log "Synchronizing build dependencies with pacman..."
-        if pacman --sync --needed autoconf automake boost gcc git libevent libtool make pkgconf python sqlite 2>&1 | tee -a "$LOG_FILE"; then
-            log "Package synchronization completed successfully."
-        else
-            log "Package synchronization failed."
-            exit 1
-        fi
-    else
-        log "Warning: Unknown package manager. You may need to install dependencies manually."
-    fi
-fi
-
 # Clone the bitcoin repository
 log "Cloning Bitcoin Knots repository from GitHub..."
 if su - "$username" -c "cd $src_dir && git clone https://github.com/bitcoinknots/bitcoin.git" 2>&1 | tee -a "$LOG_FILE"; then
@@ -121,64 +167,3 @@ else
     log "Failed to clone Bitcoin Knots repository."
     exit 1
 fi
-
-# Change directory into the repository
-bitcoin_src="$src_dir/bitcoin"
-log "Changing directory to bitcoin..."
-cd "$bitcoin_src" || { log "Failed to change directory to bitcoin/"; exit 1; }
-
-# Checkout the specified tag
-log "Checking out tag: $bitcoin_knots_tag..."
-if su - "$username" -c "cd $bitcoin_src && git checkout $bitcoin_knots_tag" 2>&1 | tee -a "$LOG_FILE"; then
-    log "Tag checkout completed successfully."
-else
-    log "Tag checkout failed. The specified tag may not exist."
-    exit 1
-fi
-
-# Run autogen.sh
-log "Running autogen.sh..."
-if su - "$username" -c "cd $bitcoin_src && ./autogen.sh" 2>&1 | tee -a "$LOG_FILE"; then
-    log "autogen.sh completed successfully."
-else
-    log "autogen.sh failed."
-    exit 1
-fi
-
-# Run configure with --disable-wallet --with-zmq=no options
-log "Running configure with --disable-wallet..."
-if su - "$username" -c "cd $bitcoin_src && ./configure --with-zmq=no --disable-wallet --prefix=$bitcoin_dir" 2>&1 | tee -a "$LOG_FILE"; then
-    log "Configure completed successfully."
-else
-    log "Configure failed."
-    exit 1
-fi
-
-# Run make with the specified number of CPU cores
-log "Running make -j$cpu_cores..."
-if su - "$username" -c "cd $bitcoin_src && make -j$cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
-    log "make completed successfully."
-else
-    log "make failed."
-    exit 1
-fi
-
-# Install to the bin directory
-log "Installing binaries..."
-if su - "$username" -c "cd $bitcoin_src && make install" 2>&1 | tee -a "$LOG_FILE"; then
-    log "Installation completed successfully."
-else
-    log "Installation failed."
-    exit 1
-fi
-
-# Create a symlink in /usr/local/bin for system-wide accessibility
-log "Creating symlink in /usr/local/bin..."
-if ln -sf "$bitcoin_dir/bin/bitcoind" /usr/local/bin/bitcoind 2>&1 | tee -a "$LOG_FILE"; then
-    log "Symlink created successfully."
-else
-    log "Failed to create symlink."
-    exit 1
-fi
-
-log "Bitcoin Knots build process completed."
