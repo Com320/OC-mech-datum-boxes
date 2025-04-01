@@ -103,11 +103,23 @@ verify_git_tag() {
         return 1
     fi
 
-    # Get the path to the verification script
-    local verify_script="$(dirname "$0")/verify-git-tag.sh"
+    # Get the absolute path to the verification script
+    local script_dir="$(cd "$(dirname "$0")" && pwd)"
+    local verify_script="$script_dir/verify-git-tag.sh"
+    
+    if [ ! -f "$verify_script" ]; then
+        log "${RED}Error: Verification script not found at $verify_script${NC}"
+        return 1
+    fi
     
     # Ensure the script is executable
     chmod +x "$verify_script"
+    
+    # Create a temporary copy of the verification script in user's home
+    local user_script="$user_home/.verify-git-tag.sh"
+    cp "$verify_script" "$user_script"
+    chown "$username:$username" "$user_script"
+    chmod +x "$user_script"
     
     # Create a log file path that the bitcoin user can write to
     local user_log_file="$user_home/.verify-git-tag.log"
@@ -115,7 +127,8 @@ verify_git_tag() {
     chown "$username:$username" "$user_log_file"
     
     # Run the verification script as the repository owner, passing the log file path
-    su - "$username" -c "$verify_script \"$repo_path\" \"$tag\" \"$fingerprint\" \"$user_log_file\""
+    log "Running verification as user $username with script at $user_script"
+    su - "$username" -c "$user_script \"$repo_path\" \"$tag\" \"$fingerprint\" \"$user_log_file\""
     local result=$?
     
     # Copy the content from the user log file to our main log file
@@ -123,6 +136,9 @@ verify_git_tag() {
         cat "$user_log_file" >> "$LOG_FILE"
         rm -f "$user_log_file"
     fi
+    
+    # Clean up the temporary script
+    rm -f "$user_script"
     
     if [ $result -eq 0 ]; then
         log "Signature verification successful for tag: $tag"
