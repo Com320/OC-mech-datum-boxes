@@ -102,35 +102,33 @@ verify_git_tag() {
         log "${RED}Error: GPG is not installed. Please run dependencies.sh first or restart the entire setup process.${NC}"
         return 1
     fi
+
+    # Get the path to the verification script
+    local verify_script="$(dirname "$0")/verify-git-tag.sh"
     
-    # Import the key if it's not already in the keyring
-    if ! gpg --list-keys "$fingerprint" &> /dev/null; then
-        log "Importing key with fingerprint: $fingerprint"
-        if ! gpg --keyserver keyserver.ubuntu.com --recv-keys "$fingerprint" >> "$LOG_FILE" 2>&1; then
-            log "Failed to import key from Ubuntu keyserver, trying keys.openpgp.org..."
-            if ! gpg --keyserver keys.openpgp.org --recv-keys "$fingerprint" >> "$LOG_FILE" 2>&1; then
-                log "Error: Failed to import key from both keyservers"
-                return 1
-            fi
-        fi
+    # Ensure the script is executable
+    chmod +x "$verify_script"
+    
+    # Create a log file path that the bitcoin user can write to
+    local user_log_file="$user_home/.verify-git-tag.log"
+    touch "$user_log_file"
+    chown "$username:$username" "$user_log_file"
+    
+    # Run the verification script as the repository owner, passing the log file path
+    su - "$username" -c "$verify_script \"$repo_path\" \"$tag\" \"$fingerprint\" \"$user_log_file\""
+    local result=$?
+    
+    # Copy the content from the user log file to our main log file
+    if [ -f "$user_log_file" ]; then
+        cat "$user_log_file" >> "$LOG_FILE"
+        rm -f "$user_log_file"
     fi
     
-    # Verify the tag using Git's built-in verification
-    cd "$repo_path" || { log "Failed to change to repository directory"; return 1; }
-    
-    # First make sure the tag exists
-    if ! git tag -l | grep -q "^$tag$"; then
-        log "Error: Tag $tag does not exist in the repository"
-        return 1
-    fi
-    
-    # Let Git verify the tag
-    log "Verifying tag signature with Git..."
-    if git verify-tag "$tag" >> "$LOG_FILE" 2>&1; then
+    if [ $result -eq 0 ]; then
         log "Signature verification successful for tag: $tag"
         return 0
     else
-        log "Error: Tag signature verification failed"
+        log "Signature verification failed for tag: $tag"
         return 1
     fi
 }
