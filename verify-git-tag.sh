@@ -35,24 +35,44 @@ cd "$REPO_PATH" || { log "Error: Cannot change to repository directory $REPO_PAT
 # Import the key if it's not already in the keyring
 if ! gpg --list-keys "$FINGERPRINT" &> /dev/null; then
     log "Importing key with fingerprint: $FINGERPRINT"
-    if ! gpg --keyserver keyserver.ubuntu.com --recv-keys "$FINGERPRINT" 2>&1; then
+    import_output=$(gpg --keyserver keyserver.ubuntu.com --recv-keys "$FINGERPRINT" 2>&1)
+    if [ $? -ne 0 ]; then
         log "Failed to import key from Ubuntu keyserver, trying keys.openpgp.org..."
-        if ! gpg --keyserver keys.openpgp.org --recv-keys "$FINGERPRINT" 2>&1; then
+        log "Import output: $import_output"
+        import_output=$(gpg --keyserver keys.openpgp.org --recv-keys "$FINGERPRINT" 2>&1)
+        if [ $? -ne 0 ]; then
             log "Error: Failed to import key from both keyservers"
+            log "Import output: $import_output"
             exit 1
         fi
     fi
+    log "Key import output: $import_output"
 fi
 
 # First make sure the tag exists
-if ! git tag -l | grep -q "^$TAG$"; then
+tag_list_output=$(git tag -l 2>&1)
+log "Available tags: $tag_list_output"
+if ! echo "$tag_list_output" | grep -q "^$TAG$"; then
     log "Error: Tag $TAG does not exist in the repository"
     exit 1
 fi
 
 # Verify the tag using Git's built-in verification
 log "Verifying signature for tag: $TAG"
-if git verify-tag "$TAG" 2>&1; then
+
+# Capture the output of git verify-tag
+verification_output=$(git verify-tag "$TAG" 2>&1)
+verification_result=$?
+
+# Log the entire verification output
+log "=== Git Verification Output Start ==="
+echo "$verification_output" | while IFS= read -r line; do
+    log "$line"
+done
+log "=== Git Verification Output End ==="
+
+# Check the verification result
+if [ $verification_result -eq 0 ]; then
     log "Signature verification successful for tag: $TAG"
     exit 0
 else
