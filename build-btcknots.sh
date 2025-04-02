@@ -104,7 +104,7 @@ verify_git_tag() {
     fi
 
     # Get the absolute path to the verification script
-    local script_dir="$(cd "$(dirname "$0")" && pwd)"
+    local script_dir="/root/OC-mech-datum-boxes"
     local verify_script="$script_dir/verify-git-tag.sh"
     
     if [ ! -f "$verify_script" ]; then
@@ -112,14 +112,13 @@ verify_git_tag() {
         return 1
     fi
     
-    # Ensure the script is executable
-    chmod +x "$verify_script"
-    
-    # Create a temporary copy of the verification script in user's home
-    local user_script="$user_home/.verify-git-tag.sh"
+    # Copy the script to a location where the bitcoin user can access it
+    local user_script="$user_home/verify-git-tag.sh"
     cp "$verify_script" "$user_script"
+    
+    # Set proper ownership and permissions
     chown "$username:$username" "$user_script"
-    chmod +x "$user_script"
+    chmod 755 "$user_script"
     
     # Create a log file path that the bitcoin user can write to
     local user_log_file="$user_home/.verify-git-tag.log"
@@ -127,7 +126,7 @@ verify_git_tag() {
     chown "$username:$username" "$user_log_file"
     
     # Run the verification script as the repository owner, passing the log file path
-    log "Running verification as user $username with script at $user_script"
+    log "Running verification as user $username using script at $user_script"
     su - "$username" -c "$user_script \"$repo_path\" \"$tag\" \"$fingerprint\" \"$user_log_file\""
     local result=$?
     
@@ -208,3 +207,47 @@ fi
 
 # Run autogen.sh
 log "Running autogen.sh..."
+if su - "$username" -c "cd $bitcoin_src && ./autogen.sh" 2>&1 | tee -a "$LOG_FILE"; then
+    log "autogen.sh completed successfully."
+else
+    log "autogen.sh failed."
+    exit 1
+fi
+
+# Run configure with --disable-wallet --with-zmq=no options
+log "Running configure with --disable-wallet..."
+if su - "$username" -c "cd $bitcoin_src && ./configure --with-zmq=no --disable-wallet --prefix=$bitcoin_dir" 2>&1 | tee -a "$LOG_FILE"; then
+    log "Configure completed successfully."
+else
+    log "Configure failed."
+    exit 1
+fi
+
+# Run make with the specified number of CPU cores
+log "Running make -j$cpu_cores..."
+if su - "$username" -c "cd $bitcoin_src && make -j$cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
+    log "make completed successfully."
+else
+    log "make failed."
+    exit 1
+fi
+
+# Install to the bin directory
+log "Installing binaries..."
+if su - "$username" -c "cd $bitcoin_src && make install" 2>&1 | tee -a "$LOG_FILE"; then
+    log "Installation completed successfully."
+else
+    log "Installation failed."
+    exit 1
+fi
+
+# Create a symlink in /usr/local/bin for system-wide accessibility
+log "Creating symlink in /usr/local/bin..."
+if ln -sf "$bitcoin_dir/bin/bitcoind" /usr/local/bin/bitcoind 2>&1 | tee -a "$LOG_FILE"; then
+    log "Symlink created successfully."
+else
+    log "Failed to create symlink."
+    exit 1
+fi
+
+log "Bitcoin Knots build process completed."
