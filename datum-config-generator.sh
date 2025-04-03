@@ -20,6 +20,18 @@ if [ -z "$username" ]; then
     username="bitcoin"  # Default username
 fi
 
+# Get coinbase tag settings from settings.json (with defaults if not found)
+coinbase_tag_primary=$(grep -o '"coinbase_tag_primary": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$coinbase_tag_primary" ]; then
+    echo -e "${YELLOW}Could not determine coinbase_tag_primary from settings.json. Using default 'DATUM'.${NC}"
+    coinbase_tag_primary="DATUM"  # Default value
+fi
+
+coinbase_tag_secondary=$(grep -o '"coinbase_tag_secondary": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+if [ -z "$coinbase_tag_secondary" ]; then
+    coinbase_tag_secondary=""  # Default empty secondary tag
+fi
+
 # Get user's home directory
 user_home=$(eval echo ~"$username")
 if [ ! -d "$user_home" ]; then
@@ -114,8 +126,8 @@ while true; do
   },
   "mining": {
     "pool_address": "$(get_input "Enter pool_address" "")",
-    "coinbase_tag_primary": "$(get_input "Enter coinbase_tag_primary" "OCEAN")",
-    "coinbase_tag_secondary": "$(get_input "Enter coinbase_tag_secondary" "")"
+    "coinbase_tag_primary": "$(get_input "Enter coinbase_tag_primary" "$coinbase_tag_primary")",
+    "coinbase_tag_secondary": "$(get_input "Enter coinbase_tag_secondary" "$coinbase_tag_secondary")"
   },
   "api": {
     "listen_port": $(get_input "Enter API listen_port" 7152)
