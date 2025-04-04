@@ -63,12 +63,13 @@ confirm_input() {
 }
 
 # Prepare default values
-default_conf="$user_home/.bitcoin/bitcoin.conf"
-default_data="$user_home/.bitcoin/data"
+default_conf="/etc/bitcoin/bitcoin.conf"
+default_data="/var/lib/bitcoind"
 
 # Show current user being used
 echo -e "Using configuration for user: ${GREEN}$username${NC}"
 echo -e "Home directory: ${GREEN}$user_home${NC}"
+echo -e "Using system locations by default for improved compatibility with systemd services"
 
 # Prompt the user for their inputs
 while true; do
@@ -96,14 +97,30 @@ done
 # Create directory for the bitcoin.conf file if it doesn't exist
 conf_dir=$(dirname "$user_input1")
 if [ ! -d "$conf_dir" ]; then
-    mkdir -p "$conf_dir"
-    chown -R "$username:$username" "$conf_dir"
+    sudo mkdir -p "$conf_dir"
+    if [[ "$conf_dir" == "/etc/bitcoin" ]]; then
+        # System directory should be root:username with stricter permissions
+        sudo chown -R root:"$username" "$conf_dir"
+        sudo chmod 750 "$conf_dir"
+    else
+        # User directory with standard permissions
+        sudo chown -R "$username:$username" "$conf_dir"
+        sudo chmod 700 "$conf_dir"
+    fi
 fi
 
 # Create the data directory if it doesn't exist
 if [ ! -d "$user_input2" ]; then
-    mkdir -p "$user_input2"
-    chown -R "$username:$username" "$user_input2"
+    sudo mkdir -p "$user_input2"
+    if [[ "$user_input2" == "/var/lib/bitcoind" ]]; then
+        # System data directory should be username:username
+        sudo chown -R "$username:$username" "$user_input2"
+        sudo chmod 750 "$user_input2"
+    else
+        # User data directory
+        sudo chown -R "$username:$username" "$user_input2"
+        sudo chmod 700 "$user_input2"
+    fi
 fi
 
 # Create or overwrite bitcoin.conf
@@ -139,6 +156,11 @@ EOF
 
 # Set ownership
 chown "$username:$username" "$user_input1"
+
+# Set permissions to ensure bitcoind can read the file when run by systemd
+# chmod 600 (owner read-write only) is appropriate for config files with credentials
+chmod 600 "$user_input1"
+echo "Set permissions on bitcoin.conf to 600 (owner read-write only)"
 
 # Check if the operation was successful
 if [ $? -eq 0 ]; then

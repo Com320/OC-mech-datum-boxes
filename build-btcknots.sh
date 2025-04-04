@@ -168,6 +168,17 @@ mkdir -p "$src_dir"
 mkdir -p "$bin_dir"
 chown -R "$username:$username" "$bitcoin_dir"
 
+# Create system directories for Bitcoin configuration if they don't exist
+log "Creating system directories for Bitcoin..."
+sudo mkdir -p "/etc/bitcoin"
+sudo mkdir -p "/var/lib/bitcoind"
+log "Setting up permissions for system directories..."
+sudo chown -R root:"$username" "/etc/bitcoin"
+sudo chmod 750 "/etc/bitcoin"
+sudo chown -R "$username:$username" "/var/lib/bitcoind"
+sudo chmod 750 "/var/lib/bitcoind"
+log "System directories created with proper permissions"
+
 # Move into source-code directory
 log "Changing directory to $src_dir..."
 cd "$src_dir" || { log "Failed to change directory to $src_dir."; exit 1; }
@@ -232,21 +243,65 @@ else
     exit 1
 fi
 
-# Install to the bin directory
-log "Installing binaries..."
-if su - "$username" -c "cd $bitcoin_src && make install" 2>&1 | tee -a "$LOG_FILE"; then
-    log "Installation completed successfully."
+# The binary is located at a known path after build
+built_binary="$bitcoin_src/src/bitcoind"
+log "Checking binary at known path: $built_binary"
+if su - "$username" -c "test -f $built_binary && test -x $built_binary"; then
+    log "Verified: Binary exists and is executable at $built_binary"
 else
-    log "Installation failed."
+    log "${RED}Error: Binary not found or not executable at expected location: $built_binary${NC}"
+    log "Searching for binary in alternative locations..."
+    su - "$username" -c "find $bitcoin_src -name 'bitcoind' -type f" | tee -a "$LOG_FILE"
     exit 1
 fi
 
-# Create a symlink in /usr/local/bin for system-wide accessibility
-log "Creating symlink in /usr/local/bin..."
-if ln -sf "$bitcoin_dir/bin/bitcoind" /usr/local/bin/bitcoind 2>&1 | tee -a "$LOG_FILE"; then
-    log "Symlink created successfully."
+# Create bin directory if it doesn't exist
+log "Ensuring bin directory exists at $bin_dir"
+mkdir -p "$bin_dir"
+chown -R "$username:$username" "$bin_dir"
+
+# Copy binary to user's bin directory
+log "Copying binary to user's bin directory..."
+if su - "$username" -c "cp $built_binary $bin_dir/" 2>&1 | tee -a "$LOG_FILE"; then
+    log "Binary copied to $bin_dir/bitcoind successfully."
 else
-    log "Failed to create symlink."
+    log "${RED}Error: Failed to copy binary to $bin_dir/bitcoind${NC}"
+    exit 1
+fi
+
+# Install the binary directly to /usr/local/bin for system-wide accessibility
+log "Installing binary to /usr/local/bin..."
+if cp "$built_binary" /usr/local/bin/bitcoind 2>&1 | tee -a "$LOG_FILE"; then
+    log "Binary copied to /usr/local/bin/bitcoind successfully."
+else
+    log "${RED}Error: Failed to copy binary to /usr/local/bin/bitcoind${NC}"
+    exit 1
+fi
+
+# Set proper ownership and permissions
+log "Setting permissions on binary..."
+if chown root:root /usr/local/bin/bitcoind; then
+    log "Binary ownership set to root:root."
+else
+    log "${RED}Error: Failed to set binary ownership${NC}"
+    exit 1
+fi
+
+if chmod 755 /usr/local/bin/bitcoind; then
+    log "Binary permissions set to 755."
+else
+    log "${RED}Error: Failed to set binary permissions${NC}"
+    exit 1
+fi
+
+# Verify the binary works
+log "Verifying binary..."
+if /usr/local/bin/bitcoind --version | head -n1 >> "$LOG_FILE" 2>&1; then
+    log "Binary is working correctly."
+else
+    log "${RED}Error: Cannot execute bitcoind. Check library dependencies:${NC}"
+    ldd /usr/local/bin/bitcoind >> "$LOG_FILE" 2>&1 || echo "ldd command failed" >> "$LOG_FILE"
+    file /usr/local/bin/bitcoind >> "$LOG_FILE" 2>&1
     exit 1
 fi
 
