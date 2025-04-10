@@ -130,7 +130,9 @@ while true; do
     "coinbase_tag_secondary": "$(get_input "Enter coinbase_tag_secondary" "$coinbase_tag_secondary")"
   },
   "api": {
-    "listen_port": $(get_input "Enter API listen_port" 7152)
+    "listen_port": $(get_input "Enter API listen_port" 7152),
+    "admin_password": "$(get_input "Enter API admin password" "admin")",
+    "modify_conf": $(get_input "Allow API to modify config? (true/false)" false)
   },
   "logger": {
     "log_to_file": $(get_input "Log to file? (true/false)" true),
