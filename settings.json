@@ -4,6 +4,7 @@
         "create_if_not_exists": true
     },
     "logpath": "datum_instlogs",
+    "scripts_path": "/root/OC-mech-datum-boxes",
     "build_options": {
         "cpu_cores": 4,
         "bitcoin_knots_tag": "v28.1.knots20250305",

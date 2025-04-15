@@ -85,13 +85,19 @@ verify_git_tag() {
     local fingerprint="$3"
     
     log "Verifying signature for tag: $tag"
-    
-    # Check if we have gnupg installed
+      # Check if we have gnupg installed
     if ! command -v gpg &> /dev/null; then
         log "${RED}Error: GPG is not installed. Please run dependencies.sh first or restart the entire setup process.${NC}"
         return 1
-    fi    # Get the absolute path to the verification script
-    local script_dir="/root/OC-mech-datum-boxes"
+    fi
+    
+    # Get the path to scripts from settings.json, default to /root/OC-mech-datum-boxes if not found
+    local script_dir=$(read_json_value "scripts_path" "$SETTINGS_FILE")
+    if [ -z "$script_dir" ]; then
+        log "${YELLOW}Could not determine scripts_path from settings.json. Using default '/root/OC-mech-datum-boxes'.${NC}"
+        script_dir="/root/OC-mech-datum-boxes"
+    fi
+    
     local verify_script="$script_dir/verify-git-tag.sh"
     local utils_script="$script_dir/utils.sh"
     local settings_file="$script_dir/settings.json"
