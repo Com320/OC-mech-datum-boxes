@@ -34,6 +34,31 @@ read_json_value() {
 }
 export -f read_json_value
 
+# JSON helper function for boolean values
+read_json_bool() {
+    # Usage: read_json_bool "key" file
+    # Returns 0 (success) if value is "true", 1 (failure) if "false"
+    local key="$1"
+    local file="$2"
+    local value=$(sed -n "s/.*\"$key\": *\(true\|false\).*/\1/p" "$file")
+    if [ "$value" == "true" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+export -f read_json_bool
+
+# JSON helper function for arrays
+read_json_array() {
+    # Usage: read_json_array "key" file
+    # It extracts the lines between the [ and ] for the given key
+    local key="$1"
+    local file="$2"
+    sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
+}
+export -f read_json_array
+
 # Initialize logging
 # This function sets up logging for a script and must be called before any logging occurs
 # Usage: init_logging "script_name"

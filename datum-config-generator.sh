@@ -1,41 +1,38 @@
 #!/bin/bash
 
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+# Source common utilities
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
 
-# Global Variables & Settings
-SETTINGS_FILE="$(dirname "$0")/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
-    exit 1
-fi
+# Initialize logging
+init_logging "datum-config-generator"
 
 # Get username from settings.json
-username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+username=$(read_json_value "username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
-    echo -e "${RED}Could not determine username from settings.json.${NC}"
+    log_display "${RED}Could not determine username from settings.json.${NC}"
     username="bitcoin"  # Default username
+    log "Using default username: $username"
 fi
 
 # Get coinbase tag settings from settings.json (with defaults if not found)
-coinbase_tag_primary=$(grep -o '"coinbase_tag_primary": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+coinbase_tag_primary=$(read_json_value "coinbase_tag_primary" "$SETTINGS_FILE")
 if [ -z "$coinbase_tag_primary" ]; then
-    echo -e "${YELLOW}Could not determine coinbase_tag_primary from settings.json. Using default 'DATUM'.${NC}"
+    log_display "${YELLOW}Could not determine coinbase_tag_primary from settings.json. Using default 'DATUM'.${NC}"
     coinbase_tag_primary="DATUM"  # Default value
+    log "Using default coinbase_tag_primary: $coinbase_tag_primary"
 fi
 
-coinbase_tag_secondary=$(grep -o '"coinbase_tag_secondary": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+coinbase_tag_secondary=$(read_json_value "coinbase_tag_secondary" "$SETTINGS_FILE")
 if [ -z "$coinbase_tag_secondary" ]; then
     coinbase_tag_secondary=""  # Default empty secondary tag
+    log "Using empty coinbase_tag_secondary"
 fi
 
 # Get user's home directory
 user_home=$(eval echo ~"$username")
 if [ ! -d "$user_home" ]; then
-    echo -e "${RED}User home directory for $username not found.${NC}"
+    log_display "${RED}User home directory for $username not found.${NC}"
     exit 1
 fi
 
@@ -46,7 +43,7 @@ default_rpc_password=""
 
 # Extract RPC username and password from rpcinfo.bin
 if [ -f "$rpcinfo_file" ]; then
-    echo -e "${GREEN}Found RPC authentication info:${NC}"
+    log_display "${GREEN}Found RPC authentication info:${NC}"
     
     # Extract the username from rpcauth line (format is rpcauth=username:hash)
     rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file" | head -n 1)
@@ -62,24 +59,26 @@ if [ -f "$rpcinfo_file" ]; then
             default_rpc_password=$(sed -n "${next_line}p" "$rpcinfo_file")
             
             # Display clear RPC credential information at the top
-            echo -e "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
-            echo -e "RPC Username: ${GREEN}$default_rpc_user${NC}"
-            echo -e "RPC Password: ${GREEN}$default_rpc_password${NC}"
-            echo -e "${YELLOW}=======================================${NC}"
-            echo
+            log_display "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
+            log_display "RPC Username: ${GREEN}$default_rpc_user${NC}"
+            log_display "RPC Password: ${GREEN}$default_rpc_password${NC}"
+            log_display "${YELLOW}=======================================${NC}"
+            log_display ""
         else
-            echo -e "${RED}Could not extract password line number from rpcinfo.bin${NC}"
+            log_display "${RED}Could not extract password line number from rpcinfo.bin${NC}"
         fi
     else
-        echo -e "${RED}Could not find 'Your password:' line in rpcinfo.bin${NC}"
+        log_display "${RED}Could not find 'Your password:' line in rpcinfo.bin${NC}"
     fi
 else
-    echo -e "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
+    log_display "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
 fi
 
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
+    # Log the input for reference
+    log "Input for '$1': ${input:-$2} (default was: $2)"
     echo "${input:-$2}"
 }
 
@@ -88,14 +87,16 @@ confirm_input() {
     echo "$1"
     read -p "Is this correct? (y/n): " confirm
     if [[ "$confirm" != "y" ]]; then
+        log "User chose to edit the configuration"
         return 1
     fi
+    log "User confirmed the configuration"
     return 0
 }
 
 # Show current user being used
-echo -e "Using configuration for user: ${GREEN}$username${NC}"
-echo -e "Home directory: ${GREEN}$user_home${NC}"
+log_display "Using configuration for user: ${GREEN}$username${NC}"
+log_display "Home directory: ${GREEN}$user_home${NC}"
 
 # Default config path
 default_config_path="$user_home/datum"
@@ -103,10 +104,11 @@ default_log_file="$default_config_path/logs/datum.log"
 
 # Ask for config path with the appropriate default
 while true; do
-    echo "Where do you want to store datum_gateway_config.json?"
+    log_display "Where do you want to store datum_gateway_config.json?"
     read -p "Enter path (default: $default_config_path): " config_path
     config_path=${config_path:-$default_config_path}
     filename="$config_path/datum_gateway_config.json"
+    log "Selected config path: $config_path"
 
     # Create JSON content with user inputs or defaults
     json_content=$(cat <<EOF
@@ -148,29 +150,28 @@ while true; do
   }
 }
 EOF
-)
-
-    # Show preview of the configuration
-    echo -e "${GREEN}Configuration preview:${NC}"
-    echo "$json_content"
+)    # Show preview of the configuration
+    log_display "${GREEN}Configuration preview:${NC}"
+    log_display "$json_content"
     
     # Ask for confirmation
     confirm_input "Is this configuration correct?"
     if [ $? -eq 0 ]; then
         break
     fi
-    echo "Let's try again."
-    echo
+    log_display "Let's try again."
+    log_display ""
 done
 
 # Create directory for the config file if it doesn't exist
 if [ ! -d "$config_path" ]; then
     mkdir -p "$config_path"
     if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to create directory $config_path${NC}"
+        log_display "${RED}Failed to create directory $config_path${NC}"
         exit 1
     fi
     chown -R "$username:$username" "$config_path"
+    log "Created directory $config_path"
 fi
 
 # Create logs directory if it doesn't exist
@@ -178,10 +179,11 @@ log_dir=$(dirname "$default_log_file")
 if [ ! -d "$log_dir" ]; then
     mkdir -p "$log_dir"
     if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to create directory $log_dir${NC}"
+        log_display "${RED}Failed to create directory $log_dir${NC}"
         exit 1
     fi
     chown -R "$username:$username" "$log_dir"
+    log "Created logs directory $log_dir"
 fi
 
 # Write the JSON content to the file
@@ -189,20 +191,21 @@ echo "$json_content" | sudo tee "$filename" > /dev/null
 
 # Set proper ownership
 chown "$username:$username" "$filename"
+log "Created configuration file: $filename"
 
 # Check if file was created successfully
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}File '$filename' created successfully.${NC}"
+    log_display "${GREEN}File '$filename' created successfully.${NC}"
     
     # Remind user of the RPC credentials after configuration is created
     if [ -n "$default_rpc_password" ]; then
-        echo
-        echo -e "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
-        echo -e "RPC Username: ${GREEN}$default_rpc_user${NC}"
-        echo -e "RPC Password: ${GREEN}$default_rpc_password${NC}"
-        echo -e "${YELLOW}=======================================${NC}"
+        log_display ""
+        log_display "${YELLOW}=========== RPC CREDENTIALS ===========${NC}"
+        log_display "RPC Username: ${GREEN}$default_rpc_user${NC}"
+        log_display "RPC Password: ${GREEN}$default_rpc_password${NC}"
+        log_display "${YELLOW}=======================================${NC}"
     fi
 else
-    echo -e "${RED}An error occurred while creating the file.${NC}"
+    log_display "${RED}An error occurred while creating the file.${NC}"
     exit 1
 fi

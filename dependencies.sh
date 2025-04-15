@@ -3,45 +3,25 @@
 # This script should not be run on its own, this is part of main.sh.
 #   It reads settings from a settings.json file in the same directory
 
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+# Source common utilities
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
 
-# Global Variables & Settings
-SETTINGS_FILE="$(dirname "$0")/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
-    exit 1
-fi
-
-# JSON helper functions (using sed for simple flat JSON parsing)
-read_json_value() {
-    # Usage: read_json_value "key" file
-    local key="$1"
-    local file="$2"
-    sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
-}
-
-read_json_array() {
-    # Usage: read_json_array "key" file
-    # It extracts the lines between the [ and ] for the given key
-    local key="$1"
-    local file="$2"
-    sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
-}
+# Initialize logging
+init_logging "dependencies"
 
 # Get username from settings.json
-username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+username=$(read_json_value "username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
-    echo -e "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
+    log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
     username="bitcoin"
+    log "Using default username: $username"
 fi
 
 # Get user's home directory
 user_home=$(eval echo ~"$username")
 if [ ! -d "$user_home" ]; then
-    echo -e "${RED}User home directory for $username not found.${NC}"
+    log_display "${RED}User home directory for $username not found.${NC}"
     exit 1
 fi
 
@@ -54,7 +34,7 @@ fi
 
 # Create log directory if it doesn't exist
 if [ ! -d "$logpath" ]; then
-    mkdir -p "$logpath" || { echo -e "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
+    mkdir -p "$logpath" || { log_display "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
     chown -R "$username:$username" "$logpath"
 fi
 LOG_FILE="${logpath}/depend_inst.log"
@@ -81,29 +61,29 @@ error_occurred=0
 log "Starting installation process..."
 
 # Update package lists
-log "Updating package lists..."
+log_display "Updating package lists..."
 if apt-get update 2>&1 | tee -a "$LOG_FILE"; then
-    log "Package lists updated successfully."
+    log_display "Package lists updated successfully."
 else
-    log "Failed to update package lists."
+    log_display "Failed to update package lists."
     error_occurred=1
 fi
 
 # Install packages
-log "Installing packages..."
+log_display "Installing packages..."
 for package in "${PACKAGES[@]}"; do
-    log "Installing $package..."
+    log_display "Installing $package..."
     if apt-get install -y "$package" 2>&1 | tee -a "$LOG_FILE"; then
-        log "$package installed successfully."
+        log_display "$package installed successfully."
     else
-        log "Failed to install $package."
+        log_display "Failed to install $package."
         error_occurred=1
     fi
 done
 
 if [ "$error_occurred" -eq 1 ]; then
-    log "Installation process completed, but with errors, see log"
+    log_display "Installation process completed, but with errors, see log"
     exit 1
 else
-    log "Installation process completed."
+    log_display "Installation process completed."
 fi

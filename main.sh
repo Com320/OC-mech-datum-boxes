@@ -3,14 +3,15 @@
 # It installs dependencies, builds Bitcoin Knots, and builds Datum Gateway.
 # Run this script from the project's root directory.
 
+# Source common utilities
 SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
+
+# Initialize logging
+init_logging "main"
+
 ERRORS=0
 ERROR_LOG=""
-
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
 
 # Function to track errors
 track_error() {
@@ -20,33 +21,33 @@ track_error() {
   if [ $ret_val -ne 0 ]; then
     ERRORS=$((ERRORS+1))
     ERROR_LOG="${ERROR_LOG}\n- Error in ${step}"
-    echo -e "${RED}${step} failed. Continuing with next step...${NC}"
+    log_display "${RED}${step} failed. Continuing with next step...${NC}"
     return 1
   fi
-  echo -e "${GREEN}${step} completed successfully.${NC}"
+  log_display "${GREEN}${step} completed successfully.${NC}"
   return 0
 }
 
 # Ensure the script is run as root/sudo
 if [ "$(id -u)" -ne 0 ]; then
-  echo -e "${RED}This script must be run as root or with sudo privileges.${NC}"
+  log_display "${RED}This script must be run as root or with sudo privileges.${NC}"
   exit 1
 fi
 
 # Set up the user from settings.json
-echo "Setting up user..."
+log_display "Setting up user..."
 "$SCRIPT_DIR/user-setup.sh"
 track_error "User setup" $?
 
-echo "Installing dependencies..."
+log_display "Installing dependencies..."
 "$SCRIPT_DIR/dependencies.sh"
 track_error "Dependencies installation" $?
 
-echo "Building Bitcoin Knots..."
+log_display "Building Bitcoin Knots..."
 "$SCRIPT_DIR/build-btcknots.sh"
 track_error "Bitcoin Knots build" $?
 
-echo "Building Datum Gateway..."
+log_display "Building Datum Gateway..."
 "$SCRIPT_DIR/build-datum.sh"
 track_error "Datum Gateway build" $?
 
