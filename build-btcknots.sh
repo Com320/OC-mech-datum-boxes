@@ -90,11 +90,10 @@ verify_git_tag() {
     if ! command -v gpg &> /dev/null; then
         log "${RED}Error: GPG is not installed. Please run dependencies.sh first or restart the entire setup process.${NC}"
         return 1
-    fi
-
-    # Get the absolute path to the verification script
+    fi    # Get the absolute path to the verification script
     local script_dir="/root/OC-mech-datum-boxes"
     local verify_script="$script_dir/verify-git-tag.sh"
+    local utils_script="$script_dir/utils.sh"
     
     if [ ! -f "$verify_script" ]; then
         log "${RED}Error: Verification script not found at $verify_script${NC}"
@@ -103,11 +102,15 @@ verify_git_tag() {
     
     # Copy the script to a location where the bitcoin user can access it
     local user_script="$user_home/verify-git-tag.sh"
+    local user_utils="$user_home/utils.sh"
+    
+    # Copy both the verification script and utils.sh
     cp "$verify_script" "$user_script"
+    cp "$utils_script" "$user_utils"
     
     # Set proper ownership and permissions
-    chown "$username:$username" "$user_script"
-    chmod 755 "$user_script"
+    chown "$username:$username" "$user_script" "$user_utils"
+    chmod 755 "$user_script" "$user_utils"
     
     # Create a log file path that the bitcoin user can write to
     local user_log_file="$user_home/.verify-git-tag.log"
