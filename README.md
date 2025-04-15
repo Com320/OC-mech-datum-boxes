@@ -24,6 +24,18 @@ This project provides a collection of shell scripts that automate the process of
 - `datum-config-generator.sh` - Generates the DATUM Gateway configuration
 - `generate-bitcoin-service.sh` - Creates a systemd service for Bitcoin
 - `generate-datum-service.sh` - Creates a systemd service for DATUM Gateway
+- `utils.sh` - Common utility functions used across all scripts
+
+## Architecture
+
+The scripts follow a modular architecture with the following key features:
+
+- **Centralized Utilities**: Common functions are defined in `utils.sh` and shared across all scripts
+- **JSON Configuration**: All settings are managed through a single `settings.json` file
+- **Standardized Logging**: Consistent logging format with timestamps across all components
+- **Error Handling**: Scripts include robust error checking and reporting
+
+This architecture makes the codebase easier to maintain and extend.
 
 ## Usage
 
@@ -47,6 +59,7 @@ This project provides a collection of shell scripts that automate the process of
 The `settings.json` file contains key configuration parameters:
 - User account settings (username and creation options)
 - Log directory path
+- Scripts path (`scripts_path`): The directory where the scripts are installed (default: "/root/OC-mech-datum-boxes")
 - Build options:
   - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
   - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
