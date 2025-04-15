@@ -1,54 +1,52 @@
 #!/bin/bash
 
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+# Source common utilities
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
 
-# Global Variables & Settings
-SETTINGS_FILE="$(dirname "$0")/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
-    exit 1
-fi
+# Initialize logging
+init_logging "bitcoin-conf-generator"
 
 # Get username from settings.json
-username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+username=$(read_json_value "username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
-    echo -e "${RED}Could not determine username from settings.json.${NC}"
+    log_display "${RED}Could not determine username from settings.json.${NC}"
     username="bitcoin"  # Default username
+    log "Using default username: $username"
 fi
 
 # Get user's home directory
 user_home=$(eval echo ~"$username")
 if [ ! -d "$user_home" ]; then
-    echo -e "${RED}User home directory for $username not found.${NC}"
+    log_display "${RED}User home directory for $username not found.${NC}"
     exit 1
 fi
 
 # Check for RPC info file
 rpcinfo_file="$user_home/rpcinfo.bin"
 if [ -f "$rpcinfo_file" ]; then
-    echo -e "${GREEN}Found RPC authentication info:${NC}"
+    log_display "${GREEN}Found RPC authentication info:${NC}"
     # Extract the line that starts with "rpcauth="
     rpcauth_line=$(grep "^rpcauth=" "$rpcinfo_file")
     if [ -n "$rpcauth_line" ]; then
         # Extract just the value after "rpcauth="
         rpcauth_value=$(echo "$rpcauth_line" | cut -d'=' -f2)
-        echo -e "${GREEN}$rpcauth_line${NC}"
+        log_display "${GREEN}$rpcauth_line${NC}"
         default_rpcauth="$rpcauth_value"
     else
-        echo -e "${RED}Could not find rpcauth line in $rpcinfo_file${NC}"
+        log_display "${RED}Could not find rpcauth line in $rpcinfo_file${NC}"
         default_rpcauth="username:salt$hash"
     fi
 else
-    echo -e "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
+    log_display "${RED}RPC authentication info not found. Run generate-rpcauth.sh first.${NC}"
     default_rpcauth="username:salt$hash"
 fi
 
 # Function to get user input with default value
 get_input() {
     read -p "$1 (default: $2): " input
+    # Log the input for reference
+    log "Input for '$1': ${input:-$2} (default was: $2)"
     echo "${input:-$2}"
 }
 
@@ -57,8 +55,10 @@ confirm_input() {
     echo "$1"
     read -p "Is this correct? (y/n): " confirm
     if [[ "$confirm" != "y" ]]; then
+        log "User chose to edit the configuration"
         return 1
     fi
+    log "User confirmed the configuration"
     return 0
 }
 
@@ -67,9 +67,9 @@ default_conf="/etc/bitcoin/bitcoin.conf"
 default_data="/var/lib/bitcoind"
 
 # Show current user being used
-echo -e "Using configuration for user: ${GREEN}$username${NC}"
-echo -e "Home directory: ${GREEN}$user_home${NC}"
-echo -e "Using system locations by default for improved compatibility with systemd services"
+log_display "Using configuration for user: ${GREEN}$username${NC}"
+log_display "Home directory: ${GREEN}$user_home${NC}"
+log_display "Using system locations by default for improved compatibility with systemd services"
 
 # Prompt the user for their inputs
 while true; do
@@ -77,9 +77,7 @@ while true; do
     user_input2=$(get_input "Enter location for data" "$default_data")
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
-    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")
-
-    echo "You entered the following values:"
+    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")    echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"
     echo "Location for data: $user_input2"
     echo "Value for 'prune': $user_input3"
@@ -90,8 +88,8 @@ while true; do
     if [ $? -eq 0 ]; then
         break
     fi
-    echo "Let's try again."
-    echo
+    log_display "Let's try again."
+    log_display ""
 done
 
 # Create directory for the bitcoin.conf file if it doesn't exist
@@ -102,10 +100,12 @@ if [ ! -d "$conf_dir" ]; then
         # System directory should be root:username with stricter permissions
         sudo chown -R root:"$username" "$conf_dir"
         sudo chmod 750 "$conf_dir"
+        log "Created system bitcoin config directory with root:$username ownership"
     else
         # User directory with standard permissions
         sudo chown -R "$username:$username" "$conf_dir"
         sudo chmod 700 "$conf_dir"
+        log "Created user bitcoin config directory with $username:$username ownership"
     fi
 fi
 
@@ -116,10 +116,12 @@ if [ ! -d "$user_input2" ]; then
         # System data directory should be username:username
         sudo chown -R "$username:$username" "$user_input2"
         sudo chmod 750 "$user_input2"
+        log "Created system bitcoin data directory with $username:$username ownership"
     else
         # User data directory
         sudo chown -R "$username:$username" "$user_input2"
         sudo chmod 700 "$user_input2"
+        log "Created user bitcoin data directory with $username:$username ownership"
     fi
 fi
 
@@ -160,12 +162,12 @@ chown "$username:$username" "$user_input1"
 # Set permissions to ensure bitcoind can read the file when run by systemd
 # chmod 600 (owner read-write only) is appropriate for config files with credentials
 chmod 600 "$user_input1"
-echo "Set permissions on bitcoin.conf to 600 (owner read-write only)"
+log "Set permissions on bitcoin.conf to 600 (owner read-write only)"
 
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}File 'bitcoin.conf' has been created at $user_input1 successfully.${NC}"
+    log_display "${GREEN}File 'bitcoin.conf' has been created at $user_input1 successfully.${NC}"
 else
-    echo -e "${RED}An error occurred while creating the file.${NC}"
+    log_display "${RED}An error occurred while creating the file.${NC}"
     exit 1
 fi

@@ -3,52 +3,41 @@
 # It assumes dependencies were installed by a previous step.
 # NOTE: This script is intended to be invoked by main.sh and should not be run on its own.
 
-# Global Variables & Settings
-SETTINGS_FILE="$(dirname "$0")/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "Settings file not found at $SETTINGS_FILE"
-    exit 1
-fi
+# Source common utilities
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
 
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
-
-# JSON helper function (using sed for simple flat JSON parsing)
-read_json_value() {
-    # Usage: read_json_value "key" file
-    local key="$1"
-    local file="$2"
-    sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
-}
+# Initialize logging
+init_logging "build-btcknots"
 
 # Read the CPU cores setting (default to 4 if not found)
 cpu_cores=$(grep -o '"cpu_cores": *[0-9]*' "$SETTINGS_FILE" | grep -o '[0-9]*')
 if [ -z "$cpu_cores" ]; then
-    echo -e "${RED}Could not determine cpu_cores from settings.json. Using default '4'.${NC}"
+    log_display "${RED}Could not determine cpu_cores from settings.json. Using default '4'.${NC}"
     cpu_cores=4
+    log "Using default cpu_cores: $cpu_cores"
 fi
 
 # Read Bitcoin Knots tag to checkout (default to v28.1.knots20250305 if not found)
-bitcoin_knots_tag=$(grep -o '"bitcoin_knots_tag": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+bitcoin_knots_tag=$(read_json_value "bitcoin_knots_tag" "$SETTINGS_FILE")
 if [ -z "$bitcoin_knots_tag" ]; then
-    echo -e "${RED}Could not determine bitcoin_knots_tag from settings.json. Using default 'v28.1.knots20250305'.${NC}"
+    log_display "${RED}Could not determine bitcoin_knots_tag from settings.json. Using default 'v28.1.knots20250305'.${NC}"
     bitcoin_knots_tag="v28.1.knots20250305"
+    log "Using default bitcoin_knots_tag: $bitcoin_knots_tag"
 fi
 
 # Read signature verification setting (default to true if not found)
 verify_signatures=$(grep -o '"verify_signatures": *[^,}]*' "$SETTINGS_FILE" | grep -o '[^:]*$' | tr -d ' ')
 if [ -z "$verify_signatures" ]; then
-    echo -e "${YELLOW}Could not determine verify_signatures from settings.json. Using default 'true'.${NC}"
+    log_display "${YELLOW}Could not determine verify_signatures from settings.json. Using default 'true'.${NC}"
     verify_signatures=true
+    log "Using default verify_signatures: $verify_signatures"
 fi
 
 # Read key fingerprint (default if not found)
-key_fingerprint=$(grep -o '"key_fingerprint": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+key_fingerprint=$(read_json_value "key_fingerprint" "$SETTINGS_FILE")
 if [ -z "$key_fingerprint" ]; then
-    echo -e "${YELLOW}Could not determine key_fingerprint from settings.json. Using default '1A3E761F19D2CC7785C5502EA291A2C45D0C504A'.${NC}"
+    log_display "${YELLOW}Could not determine key_fingerprint from settings.json. Using default '1A3E761F19D2CC7785C5502EA291A2C45D0C504A'.${NC}"
     key_fingerprint="1A3E761F19D2CC7785C5502EA291A2C45D0C504A"
 fi
 

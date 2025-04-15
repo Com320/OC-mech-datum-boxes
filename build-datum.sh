@@ -4,89 +4,54 @@
 # It assumes dependencies are already installed.
 # NOTE: This script is intended to be invoked by main.sh and should not be run on its own.
 
-# Global Variables & Settings
-SETTINGS_FILE="$(dirname "$0")/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "Settings file not found at $SETTINGS_FILE"
-    exit 1
-fi
+# Source common utilities
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
 
-# Define colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-# JSON helper functions for parsing settings.json
-read_json_value() {
-    # Usage: read_json_value "key" file
-    local key="$1"
-    local file="$2"
-    sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
-}
+# Initialize logging
+init_logging "build-datum"
 
 # Get username from settings.json
-username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
+username=$(read_json_value "username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
-    echo -e "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
+    log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
     username="bitcoin"
+    log "Using default username: $username"
 fi
 
 # Get user's home directory
 user_home=$(eval echo ~"$username")
 if [ ! -d "$user_home" ]; then
-    echo -e "${RED}User home directory for $username not found.${NC}"
+    log_display "${RED}User home directory for $username not found.${NC}"
     exit 1
 fi
-
-# Get logpath from settings.json
-logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
-if [[ "$logpath" != /* ]]; then
-    # If logpath is not absolute, prepend user's home directory
-    logpath="$user_home/$logpath"
-fi
-
-# Create log directory and set ownership
-mkdir -p "$logpath"
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Failed to create log directory at $logpath${NC}"
-    exit 1
-fi
-chown -R "$username:$username" "$logpath"
-
-LOG_FILE="${logpath}/build_datum.log"
-
-# Log function (writes messages with a timestamp)
-log() {
-    local msg="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" | tee -a "$LOG_FILE"
-}
 
 # Main Execution
-log "Starting Datum Gateway build process..."
+log_display "Starting Datum Gateway build process..."
 
 # Create source-code directory
 datum_dir="$user_home/datum"
 src_dir="$datum_dir/src"
-log "Creating directory $src_dir..."
+log_display "Creating directory $src_dir..."
 if mkdir -p "$src_dir" 2>>"$LOG_FILE"; then
-    log "Directory $src_dir created (or already exists)."
+    log_display "Directory $src_dir created (or already exists)."
     # Set ownership
     chown -R "$username:$username" "$datum_dir"
 else
-    log "Failed to create directory $src_dir."
+    log_display "${RED}Failed to create directory $src_dir.${NC}"
     exit 1
 fi
 
 # Move into source-code directory (using su to run as the configured user)
-log "Changing directory to $src_dir..."
-cd "$src_dir" || { log "Failed to change directory to $src_dir."; exit 1; }
+log_display "Changing directory to $src_dir..."
+cd "$src_dir" || { log_display "${RED}Failed to change directory to $src_dir.${NC}"; exit 1; }
 
 # Clone the datum_gateway repository
-log "Cloning datum_gateway repository from GitHub..."
+log_display "Cloning datum_gateway repository from GitHub..."
 if su - "$username" -c "cd $src_dir && git clone https://github.com/OCEAN-xyz/datum_gateway" 2>>"$LOG_FILE"; then
-    log "datum_gateway repository cloned successfully."
+    log_display "datum_gateway repository cloned successfully."
 else
-    log "Failed to clone datum_gateway repository."
+    log_display "${RED}Failed to clone datum_gateway repository.${NC}"
     exit 1
 fi
 
