@@ -94,6 +94,7 @@ verify_git_tag() {
     local script_dir="/root/OC-mech-datum-boxes"
     local verify_script="$script_dir/verify-git-tag.sh"
     local utils_script="$script_dir/utils.sh"
+    local settings_file="$script_dir/settings.json"
     
     if [ ! -f "$verify_script" ]; then
         log "${RED}Error: Verification script not found at $verify_script${NC}"
@@ -103,14 +104,17 @@ verify_git_tag() {
     # Copy the script to a location where the bitcoin user can access it
     local user_script="$user_home/verify-git-tag.sh"
     local user_utils="$user_home/utils.sh"
+    local user_settings="$user_home/settings.json"
     
-    # Copy both the verification script and utils.sh
+    # Copy the verification script, utils.sh, and settings.json
     cp "$verify_script" "$user_script"
     cp "$utils_script" "$user_utils"
+    cp "$settings_file" "$user_settings"
     
     # Set proper ownership and permissions
-    chown "$username:$username" "$user_script" "$user_utils"
+    chown "$username:$username" "$user_script" "$user_utils" "$user_settings"
     chmod 755 "$user_script" "$user_utils"
+    chmod 644 "$user_settings"
     
     # Create a log file path that the bitcoin user can write to
     local user_log_file="$user_home/.verify-git-tag.log"
