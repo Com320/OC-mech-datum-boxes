@@ -77,12 +77,16 @@ while true; do
     user_input2=$(get_input "Enter location for data" "$default_data")
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
-    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")    echo "You entered the following values:"
+    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")
+    user_input6=$(get_input "Enter value for datacarrier 'datacarriersize'" "42")
+
+    echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"
     echo "Location for data: $user_input2"
     echo "Value for 'prune': $user_input3"
     echo "Value for 'dbcache': $user_input4"
     echo "Value for 'rpcauth': $user_input5"
+    echo "Value for 'datacarriersize': $user_input6"
 
     confirm_input "Are these values correct?"
     if [ $? -eq 0 ]; then
@@ -154,6 +158,7 @@ maxorphantx=50000
 assumevalid=000000000000000000014b9196b45c6641432d600fc43ae891fce1cd25620500
 dbcache=$user_input4
 rpcauth=$user_input5
+datacarriersize=$user_input6
 EOF
 
 # Set ownership
