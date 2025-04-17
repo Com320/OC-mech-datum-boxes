@@ -16,7 +16,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Read user configuration from settings.json
-username=$(read_json_value "username" "$SETTINGS_FILE")
+username=$(read_json_value "user.username" "$SETTINGS_FILE")
 
 if [ -z "$username" ]; then
     log_display "${RED}Could not determine username from settings.json.${NC}"
@@ -27,6 +27,9 @@ if [ -z "$username" ]; then
         read -p "Is this correct? (y/n): " confirm
         if [[ "$confirm" == "y" ]]; then
             log "User confirmed username: $username"
+            # Update the settings file with the new username
+            update_json_value "user.username" "$username" "$SETTINGS_FILE"
+            log "Updated settings.json with new username: $username"
             break
         fi
         log_display "Let's try again."
@@ -45,6 +48,27 @@ else
             if [[ "$confirm" == "y" ]]; then
                 username=$new_username
                 log "User confirmed new username: $username"
+                # Update the settings file with the new username using direct sed approach
+                log_display "Updating settings.json with new username: $username"
+                
+                # Create a backup first
+                cp "$SETTINGS_FILE" "${SETTINGS_FILE}.bak"
+                
+                # Use direct line replacement with sed
+                sed -i '/\"user\": {/,/}/s/\"username\": \"[^\"]*\"/\"username\": \"'"$username"'\"/' "$SETTINGS_FILE"
+                
+                # Check if update was successful
+                if grep -q "\"username\": \"$username\"" "$SETTINGS_FILE"; then
+                    log "Successfully updated username to $username in settings.json"
+                    log_display "${YELLOW}Settings file updated with new username: $username${NC}"
+                else
+                    log "${RED}Failed to update username in settings.json${NC}"
+                    # Restore from backup
+                    cp "${SETTINGS_FILE}.bak" "$SETTINGS_FILE"
+                fi
+                
+                # Clean up backup
+                rm -f "${SETTINGS_FILE}.bak"
                 break
             fi
             log_display "Let's try again."
@@ -61,7 +85,7 @@ if id "$username" &>/dev/null; then
     log_display "${GREEN}User $username already exists.${NC}"
 else
     # Using read_json_bool defined in utils.sh
-    if read_json_bool "create_if_not_exists" "$SETTINGS_FILE"; then
+    if read_json_bool "user.create_if_not_exists" "$SETTINGS_FILE"; then
         log_display "Creating user $username..."
         useradd -m -s /bin/bash "$username"
         if [ $? -eq 0 ]; then

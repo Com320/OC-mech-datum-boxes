@@ -1,5 +1,5 @@
 #!/bin/bash
-# utils.sh - Common utility functions for OpenCaves scripts
+# utils.sh - Common utility functions for Datum Autopilot scripts
 
 # Define colors
 export GREEN='\033[0;32m'
@@ -28,9 +28,23 @@ export SETTINGS_FILE="$SCRIPT_DIR/settings.json"
 # JSON helper function (using sed for simple flat JSON parsing)
 read_json_value() {
     # Usage: read_json_value "key" file
+    # Supports nested keys with dot notation: "parent.key"
     local key="$1"
     local file="$2"
-    sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
+    
+    # Check if we're dealing with a nested key
+    if [[ "$key" == *"."* ]]; then
+        # Split the key into parent and child
+        local parent="${key%%.*}"
+        local child="${key#*.}"
+        
+        # Extract the parent object first, then the child property
+        # This handles one level of nesting
+        sed -n "/${parent}\":/,/}/p" "$file" | sed -n "s/.*\"$child\": *\"\([^\"]*\)\".*/\1/p"
+    else
+        # Original implementation for non-nested keys
+        sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
+    fi
 }
 export -f read_json_value
 
@@ -38,9 +52,25 @@ export -f read_json_value
 read_json_bool() {
     # Usage: read_json_bool "key" file
     # Returns 0 (success) if value is "true", 1 (failure) if "false"
+    # Supports nested keys with dot notation: "parent.key"
     local key="$1"
     local file="$2"
-    local value=$(sed -n "s/.*\"$key\": *\(true\|false\).*/\1/p" "$file")
+    
+    local value=""
+    
+    # Check if we're dealing with a nested key
+    if [[ "$key" == *"."* ]]; then
+        # Split the key into parent and child
+        local parent="${key%%.*}"
+        local child="${key#*.}"
+        
+        # Extract the parent object first, then the child property
+        value=$(sed -n "/${parent}\":/,/}/p" "$file" | sed -n "s/.*\"$child\": *\(true\|false\).*/\1/p")
+    else
+        # Original implementation for non-nested keys
+        value=$(sed -n "s/.*\"$key\": *\(true\|false\).*/\1/p" "$file")
+    fi
+    
     if [ "$value" == "true" ]; then
         return 0
     else
@@ -48,6 +78,16 @@ read_json_bool() {
     fi
 }
 export -f read_json_bool
+
+# JSON helper function for arrays
+read_json_array() {
+    # Usage: read_json_array "key" file
+    # It extracts the lines between the [ and ] for the given key
+    local key="$1"
+    local file="$2"
+    sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
+}
+export -f read_json_array
 
 # JSON helper function for arrays
 read_json_array() {
@@ -74,8 +114,8 @@ init_logging() {
     # Read log path from settings
     local logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
     if [ -z "$logpath" ]; then
-        echo -e "${YELLOW}Could not determine logpath from settings.json. Using default '/var/log/opencaves'${NC}"
-        logpath="/var/log/opencaves"
+        echo -e "${YELLOW}Could not determine logpath from settings.json. Using default '/var/log/datum-ap'${NC}"
+        logpath="/var/log/datum-ap"
     fi
     
     # If logpath is not absolute, use current directory as base
@@ -129,7 +169,7 @@ export -f log_display
 # Usage: get_username
 get_username() {
     # Get username from settings.json
-    local username=$(read_json_value "username" "$SETTINGS_FILE")
+    local username=$(read_json_value "user.username" "$SETTINGS_FILE")
     
     if [ -z "$username" ]; then
         # No username found in settings
@@ -145,6 +185,9 @@ get_username() {
             read -p "Is this correct? (y/n): " confirm
             if [[ "$confirm" == "y" ]]; then
                 username="$user_input"
+                # Update settings file with the new username
+                update_json_value "user.username" "$username" "$SETTINGS_FILE"
+                log "Updated settings.json with new username: $username"
                 break
             fi
             log "User requested to try again"
@@ -170,6 +213,10 @@ get_username() {
                 read -p "Is this correct? (y/n): " confirm
                 if [[ "$confirm" == "y" ]]; then
                     username="$user_input"
+                    # Update settings file with the new username
+                    update_json_value "user.username" "$username" "$SETTINGS_FILE"
+                    log "Updated settings.json with new username: $username"
+                    log_display "${YELLOW}Settings file updated with new username: $username${NC}"
                     break
                 fi
                 log "User requested to try again"
@@ -262,10 +309,9 @@ test_utils() {
         echo "Please create a settings.json file in the same directory as utils.sh"
         return 1
     fi
-    
-    # Test read_json_value function with username and logpath
+      # Test read_json_value function with username and logpath
     echo -e "\n${GREEN}Testing read_json_value() function:${NC}"
-    echo "Username from settings: $(read_json_value "username" "$SETTINGS_FILE")"
+    echo "Username from settings: $(read_json_value "user.username" "$SETTINGS_FILE")"
     echo "Log path from settings: $(read_json_value "logpath" "$SETTINGS_FILE")"
     
     # Initialize logging for testing
