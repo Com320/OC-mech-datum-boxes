@@ -65,8 +65,7 @@ get_rpcauth_input() {
     local default_value="$1"
     
     # Special handling for rpcauth to ensure it's not empty
-    echo -n "Enter value for 'rpcauth' (default: $default_value): "
-    read input
+    read -p "Enter value for 'rpcauth' (default: $default_value): " input
     
     # Always use default if empty input
     if [ -z "$input" ]; then
