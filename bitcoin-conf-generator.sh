@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/utils.sh"
 init_logging "bitcoin-conf-generator"
 
 # Get username from settings.json
-username=$(read_json_value "username" "$SETTINGS_FILE")
+username=$(read_json_value "user.username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
     log_display "${RED}Could not determine username from settings.json.${NC}"
     username="bitcoin"  # Default username
@@ -44,10 +44,38 @@ fi
 
 # Function to get user input with default value
 get_input() {
-    read -p "$1 (default: $2): " input
+    local prompt="$1"
+    local default="$2"
+    
+    # Show the prompt
+    read -p "$prompt (default: $default): " input
+    
+    # If input is empty, use the default
+    local result="${input:-$default}"
+    
     # Log the input for reference
-    log "Input for '$1': ${input:-$2} (default was: $2)"
-    echo "${input:-$2}"
+    log "Input for '$prompt': $result (default was: $default)"
+    
+    # Return the result
+    echo "$result"
+}
+
+# Function to handle rpcauth input specifically
+get_rpcauth_input() {
+    local default_value="$1"
+    
+    # Special handling for rpcauth to ensure it's not empty
+    echo -n "Enter value for 'rpcauth' (default: $default_value): "
+    read input
+    
+    # Always use default if empty input
+    if [ -z "$input" ]; then
+        log "Using default rpcauth value: $default_value"
+        echo "$default_value"
+    else
+        log "User entered custom rpcauth value"
+        echo "$input"
+    fi
 }
 
 # Function to confirm user input
@@ -77,7 +105,9 @@ while true; do
     user_input2=$(get_input "Enter location for data" "$default_data")
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
-    user_input5=$(get_input "Enter value for 'rpcauth'" "$default_rpcauth")    echo "You entered the following values:"
+    user_input5=$(get_rpcauth_input "$default_rpcauth")
+    
+    echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"
     echo "Location for data: $user_input2"
     echo "Value for 'prune': $user_input3"
@@ -126,6 +156,13 @@ if [ ! -d "$user_input2" ]; then
 fi
 
 # Create or overwrite bitcoin.conf
+log "Writing bitcoin.conf with the following values:"
+log "  - Config location: $user_input1"
+log "  - Data directory: $user_input2"
+log "  - Prune value: $user_input3"
+log "  - DB Cache: $user_input4"
+log "  - RPC Auth: $user_input5"
+
 sudo bash -c "cat > $user_input1" << EOF
 datadir=$user_input2
 upnp=0
