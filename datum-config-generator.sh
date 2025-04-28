@@ -135,7 +135,7 @@ while true; do
   "logger": {
     "log_to_file": $(get_input "Log to file? (true/false)" true),
     "log_file": "$(get_input "Enter log file path" "$default_log_file")",
-    "log_level_file": $(get_input "Enter log level (0-3)" 0)
+    "log_level_file": $(get_input "Enter log level (0-5)" 2)
   },
   "datum": {
     "pool_host": "$(get_input "Enter pool host" "datum-beta1.mine.ocean.xyz")",
