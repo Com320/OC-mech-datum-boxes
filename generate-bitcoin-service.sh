@@ -118,6 +118,32 @@ Group=$username
 RuntimeDirectory=bitcoind
 RuntimeDirectoryMode=0710
 
+# Security hardening
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_BROADCAST CAP_NET_RAW
+NoNewPrivileges=yes
+RemoveIPC=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+PrivateMounts=yes
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=net pid
+ProtectHostname=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+RestrictRealtime=yes
+ProtectSystem=full
+ProtectProc=invisible
+ProcSubset=pid
+ProtectHome=tmpfs
+BindPaths=/home/$username/
+PrivateTmp=yes
+PrivateUsers=yes
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @privileged @raw-io @reboot @swap
+
 [Install]
 WantedBy=multi-user.target
 EOF
