@@ -39,13 +39,33 @@ This architecture makes the codebase easier to maintain and extend.
 
 ## Usage
 
-1. Clone this repository
-2. Review and modify the `settings.json` file to match your requirements
-3. Run the `main.sh` script as root **NOT SUDO**:
+### Quick Start
 
-```bash
-./main.sh
-```
+1. **Clone this repository:**
+
+   ```bash
+   git clone https://github.com/Com320/OC-mech-datum-boxes.git
+   ```
+
+2. **Change into the repository directory:**
+
+   ```bash
+   cd OC-mech-datum-boxes
+   ```
+
+3. **Review and modify `settings.json` as needed.**
+
+4. **Set all scripts in the root directory as executable:**
+
+   ```bash
+   chmod +x *.sh
+   ```
+
+5. **Run the `main.sh` script as root (NOT SUDO):**
+
+   ```bash
+   ./main.sh
+   ```
 
 ## Requirements
 
