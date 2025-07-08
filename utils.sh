@@ -132,14 +132,17 @@ init_logging() {
     fi
     
     # Set log file global variable
-    export LOG_FILE="${logpath}/${script_name}.log"
+    LOG_FILE="${logpath}/${script_name}.log"
     touch "$LOG_FILE"
-    
+
+    # Export LOG_FILE so it is available to all child processes and subshells
+    export LOG_FILE
+
     # Log initialization
     log "Logging initialized for $script_name"
     log "Log file: $LOG_FILE"
     log "Settings file: $SETTINGS_FILE"
-    
+
     return 0
 }
 

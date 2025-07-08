@@ -38,12 +38,7 @@ if [ ! -d "$logpath" ]; then
     chown -R "$username:$username" "$logpath"
 fi
 LOG_FILE="${logpath}/depend_inst.log"
-
-# Function to log messages with a timestamp
-log() {
-    local msg="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" | tee -a "$LOG_FILE"
-}
+# Use log() from utils.sh
 
 # Read package list array from settings.json
 packages_json=$(read_json_array "packages" "$SETTINGS_FILE")

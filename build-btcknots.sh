@@ -71,12 +71,7 @@ fi
 chown -R "$username:$username" "$logpath"
 
 LOG_FILE="${logpath}/build_btcknots.log"
-
-# Log function (writes messages with a timestamp)
-log() {
-    local msg="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" | tee -a "$LOG_FILE"
-}
+# Use log() from utils.sh
 
 # Verify function for checking git tag signature
 verify_git_tag() {
