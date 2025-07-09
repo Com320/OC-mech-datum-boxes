@@ -9,11 +9,19 @@ SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/utils.sh"
 
 # Get username from settings.json using utils.sh JSON parser
+
 username=$(read_json_value "user.username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
     log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
     username="bitcoin"
     log "Using default username: $username"
+fi
+
+# Get user's home directory using utils.sh function
+user_home=$(get_home_directory "$username")
+if [ -z "$user_home" ] || [ ! -d "$user_home" ]; then
+    log_display "${RED}User home directory for $username not found. Aborting.${NC}"
+    exit 1
 fi
 
 # Initialize logging

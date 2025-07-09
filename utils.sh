@@ -121,11 +121,18 @@ init_logging() {
         logpath="/var/log/datum-ap"
     fi
 
-    # If logpath is not absolute, use current directory as base
+    # If logpath is not absolute, resolve based on user
     if [[ "$logpath" != /* ]]; then
-        # Use script directory as base for relative paths
-        logpath="$SCRIPT_DIR/$logpath"
-        echo -e "[init_logging] INFO: Using relative logpath, resolved to $logpath"
+        if [ "$(id -u)" -eq 0 ]; then
+            # root: use script directory as base
+            logpath="$SCRIPT_DIR/$logpath"
+            echo -e "[init_logging] INFO: Using relative logpath as root, resolved to $logpath"
+        else
+            # non-root: use home directory as base
+            user_home=$(eval echo ~$(whoami))
+            logpath="$user_home/$logpath"
+            echo -e "[init_logging] INFO: Using relative logpath as non-root, resolved to $logpath"
+        fi
     fi
 
     # Create log directory if it doesn't exist
