@@ -74,19 +74,19 @@ track_error "Datum service generation" $?
 # Print final summary
 echo "-----------------------------------------"
 # Copy user log files to root's log directory for collection
+
+# Use scripts_path and logpath from settings.json for destination
 user=$(read_json_value "user.username" "$SETTINGS_FILE")
 logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
+scripts_path=$(read_json_value "scripts_path" "$SETTINGS_FILE")
 if [ -z "$logpath" ]; then
   logpath="datum_instlogs"
 fi
-# If logpath is not absolute, use /root as base
-if [[ "$logpath" != /* ]]; then
-  root_logdir="/root/$logpath"
-else
-  root_logdir="$logpath"
+if [ -z "$scripts_path" ]; then
+  scripts_path="/root/OC-mech-datum-boxes"
 fi
 user_logdir="/home/$user/$logpath"
-dest_dir="$root_logdir/from_${user}"
+dest_dir="$scripts_path/$logpath/from_${user}"
 mkdir -p "$dest_dir"
 echo "Copying user logs from $user_logdir to $dest_dir..."
 copied_files=()
