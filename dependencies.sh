@@ -10,36 +10,6 @@ source "$SCRIPT_DIR/utils.sh"
 # Initialize logging
 init_logging "dependencies"
 
-# Get username from settings.json
-username=$(read_json_value "username" "$SETTINGS_FILE")
-if [ -z "$username" ]; then
-    log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
-    username="bitcoin"
-    log "Using default username: $username"
-fi
-
-# Get user's home directory
-user_home=$(eval echo ~"$username")
-if [ ! -d "$user_home" ]; then
-    log_display "${RED}User home directory for $username not found.${NC}"
-    exit 1
-fi
-
-# Read settings from JSON
-logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
-if [[ "$logpath" != /* ]]; then
-    # If logpath is not absolute, prepend user's home directory
-    logpath="$user_home/$logpath"
-fi
-
-# Create log directory if it doesn't exist
-if [ ! -d "$logpath" ]; then
-    mkdir -p "$logpath" || { log_display "${RED}Unable to create log directory at $logpath${NC}"; exit 1; }
-    chown -R "$username:$username" "$logpath"
-fi
-LOG_FILE="${logpath}/depend_inst.log"
-# Use log() from utils.sh
-
 # Read package list array from settings.json
 packages_json=$(read_json_array "packages" "$SETTINGS_FILE")
 PACKAGES=()

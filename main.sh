@@ -73,6 +73,40 @@ track_error "Datum service generation" $?
 
 # Print final summary
 echo "-----------------------------------------"
+# Copy user log files to root's log directory for collection
+user=$(read_json_value "user.username" "$SETTINGS_FILE")
+logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
+if [ -z "$logpath" ]; then
+  logpath="datum_instlogs"
+fi
+# If logpath is not absolute, use /root as base
+if [[ "$logpath" != /* ]]; then
+  root_logdir="/root/$logpath"
+else
+  root_logdir="$logpath"
+fi
+user_logdir="/home/$user/$logpath"
+dest_dir="$root_logdir/from_${user}"
+mkdir -p "$dest_dir"
+echo "Copying user logs from $user_logdir to $dest_dir..."
+copied_files=()
+if [ -d "$user_logdir" ]; then
+  for f in "$user_logdir"/*; do
+    if [ -f "$f" ]; then
+      cp "$f" "$dest_dir/"
+      copied_files+=("$dest_dir/$(basename "$f")")
+    fi
+  done
+fi
+if [ ${#copied_files[@]} -gt 0 ]; then
+  echo "Copied the following user log files to $dest_dir:"
+  for f in "${copied_files[@]}"; do
+    echo "  $f"
+  done
+else
+  echo "No user log files found in $user_logdir to copy."
+fi
+
 if [ $ERRORS -eq 0 ]; then
   echo -e "${GREEN}Process completed successfully with no errors.${NC}"
   exit 0

@@ -41,38 +41,6 @@ if [ -z "$key_fingerprint" ]; then
     key_fingerprint="1A3E761F19D2CC7785C5502EA291A2C45D0C504A"
 fi
 
-# Get username from settings.json
-username=$(grep -o '"username": *"[^"]*"' "$SETTINGS_FILE" | cut -d'"' -f4)
-if [ -z "$username" ]; then
-    echo -e "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
-    username="bitcoin"
-fi
-
-# Get user's home directory
-user_home=$(eval echo ~"$username")
-if [ ! -d "$user_home" ]; then
-    echo -e "${RED}User home directory for $username not found.${NC}"
-    exit 1
-fi
-
-# Get logpath from settings.json
-logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
-if [[ "$logpath" != /* ]]; then
-    # If logpath is not absolute, prepend user's home directory
-    logpath="$user_home/$logpath"
-fi
-
-# Create log directory and set ownership
-mkdir -p "$logpath"
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Failed to create log directory at $logpath${NC}"
-    exit 1
-fi
-chown -R "$username:$username" "$logpath"
-
-LOG_FILE="${logpath}/build_btcknots.log"
-# Use log() from utils.sh
-
 # Verify function for checking git tag signature
 verify_git_tag() {
     local repo_path="$1"

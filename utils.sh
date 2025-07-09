@@ -104,44 +104,56 @@ export -f read_json_array
 # Usage: init_logging "script_name"
 init_logging() {
     local script_name="$1"
+    echo -e "[init_logging] INFO: Initializing logging for $script_name"
     
     # Check if settings file exists
     if [ ! -f "$SETTINGS_FILE" ]; then
         echo -e "${RED}Settings file not found at $SETTINGS_FILE${NC}"
+        echo -e "[init_logging] ERROR: Settings file not found at $SETTINGS_FILE"
         return 1
     fi
-    
+
     # Read log path from settings
     local logpath=$(read_json_value "logpath" "$SETTINGS_FILE")
     if [ -z "$logpath" ]; then
         echo -e "${YELLOW}Could not determine logpath from settings.json. Using default '/var/log/datum-ap'${NC}"
+        echo -e "[init_logging] WARNING: Could not determine logpath from settings.json. Using default '/var/log/datum-ap'"
         logpath="/var/log/datum-ap"
     fi
-    
+
     # If logpath is not absolute, use current directory as base
     if [[ "$logpath" != /* ]]; then
         # Use script directory as base for relative paths
         logpath="$SCRIPT_DIR/$logpath"
+        echo -e "[init_logging] INFO: Using relative logpath, resolved to $logpath"
     fi
-    
+
     # Create log directory if it doesn't exist
     mkdir -p "$logpath"
     if [ $? -ne 0 ]; then
         echo -e "${RED}Failed to create log directory at $logpath${NC}"
+        echo -e "[init_logging] ERROR: Failed to create log directory at $logpath"
         return 1
     fi
-    
+
     # Set log file global variable
     LOG_FILE="${logpath}/${script_name}.log"
-    touch "$LOG_FILE"
+    if ! touch "$LOG_FILE"; then
+        echo -e "${RED}Failed to create log file at $LOG_FILE${NC}"
+        echo -e "[init_logging] ERROR: Failed to create log file at $LOG_FILE"
+        return 1
+    fi
 
     # Export LOG_FILE so it is available to all child processes and subshells
     export LOG_FILE
 
+    echo -e "[init_logging] INFO: Logging initialized for $script_name"
+    echo -e "[init_logging] INFO: Log file: $LOG_FILE"
+    echo -e "[init_logging] INFO: Settings file: $SETTINGS_FILE"
+
     # Log initialization
     log "Logging initialized for $script_name"
     log "Log file: $LOG_FILE"
-    log "Settings file: $SETTINGS_FILE"
 
     return 0
 }
