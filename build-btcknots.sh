@@ -3,9 +3,18 @@
 # It assumes dependencies were installed by a previous step.
 # NOTE: This script is intended to be invoked by main.sh and should not be run on its own.
 
+
 # Source common utilities
 SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/utils.sh"
+
+# Get username from settings.json using utils.sh JSON parser
+username=$(read_json_value "user.username" "$SETTINGS_FILE")
+if [ -z "$username" ]; then
+    log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
+    username="bitcoin"
+    log "Using default username: $username"
+fi
 
 # Initialize logging
 init_logging "build-btcknots"
