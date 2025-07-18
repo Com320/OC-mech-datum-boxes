@@ -26,8 +26,8 @@ fi
 log "Using home directory: $user_home"
 
 # Write the content to the service file with sudo
-log "Creating Datum service file at /etc/systemd/system/datum.service"
-sudo bash -c "cat > /etc/systemd/system/datum.service" << EOF
+log "Creating Datum service file at /usr/lib/systemd/system/datum.service"
+sudo bash -c "cat > /usr/lib/systemd/system/datum.service" << EOF
 [Unit]
 Description=Datum Gateway Service
 After=network.target
@@ -46,7 +46,7 @@ EOF
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
     log_display "${GREEN}File 'datum.service' has been created and user inserted correctly.${NC}"
-    log "Service configuration saved to: /etc/systemd/system/datum.service"
+    log "Service configuration saved to: /usr/lib/systemd/system/datum.service"
     
     # Enable and start the service if requested
     read -p "Do you want to enable and start the service now? (y/n): " start_service

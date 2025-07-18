@@ -39,18 +39,21 @@ This architecture makes the codebase easier to maintain and extend.
 
 ## Usage
 
+
 ### Quick Start
 
-1. **Clone this repository:**
+**Important:** The repository must be cloned to the exact path `/root/OC-mech-datum-boxes`. If it is cloned elsewhere, some scripts and configuration steps will fail.
+
+1. **Clone this repository to `/root/OC-mech-datum-boxes`:**
 
    ```bash
-   git clone https://github.com/Com320/OC-mech-datum-boxes.git
+   git clone https://github.com/Com320/OC-mech-datum-boxes.git /root/OC-mech-datum-boxes
    ```
 
 2. **Change into the repository directory:**
 
    ```bash
-   cd OC-mech-datum-boxes
+   cd /root/OC-mech-datum-boxes
    ```
 
 3. **Review and modify `settings.json` as needed.**
@@ -100,6 +103,11 @@ The build process includes security measures to ensure the integrity of the Bitc
 - **Isolated GPG Environment**: Signature verification takes place in an isolated GPG environment to avoid conflicts with existing keys
 
 These features are enabled by default but can be disabled in the settings.json file if needed.
+
+
+## Known Issues
+
+- **Repository Path Requirement:** The scripts expect the repository to be located at `/root/OC-mech-datum-boxes`. Cloning to any other path will cause some scripts and configuration steps to fail. This is a known limitation and will be addressed in future updates.
 
 ## Important Note
 

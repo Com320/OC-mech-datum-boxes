@@ -103,8 +103,8 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
     echo "Continuing with fallback service definition..."
     
     # Write the content to the service file with sudo (using fallback simple template)
-    log "Creating fallback service file at /etc/systemd/system/bitcoin_knots.service"
-    sudo bash -c "cat > /etc/systemd/system/bitcoin_knots.service" << EOF
+    log "Creating fallback service file at /usr/lib/systemd/system/bitcoin_knots.service"
+    sudo bash -c "cat > /usr/lib/systemd/system/bitcoin_knots.service" << EOF
 [Unit]
 Description=Bitcoin Knots Service
 After=network.target
@@ -187,9 +187,9 @@ else
     grep "^ExecStart=" "$TMP_SERVICE_FILE" | tee -a "$LOG_FILE"
     
     # Copy the final service file to systemd directory
-    log "Copying service file to /etc/systemd/system/bitcoin_knots.service"
-    sudo cp "$TMP_SERVICE_FILE" "/etc/systemd/system/bitcoin_knots.service"
-    sudo chmod 644 "/etc/systemd/system/bitcoin_knots.service"
+    log "Copying service file to /usr/lib/systemd/system/bitcoin_knots.service"
+    sudo cp "$TMP_SERVICE_FILE" "/usr/lib/systemd/system/bitcoin_knots.service"
+    sudo chmod 644 "/usr/lib/systemd/system/bitcoin_knots.service"
     rm "$TMP_SERVICE_FILE"
     log "Service file successfully copied and permissions set"
 fi
@@ -197,8 +197,8 @@ fi
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
     log_display "${GREEN}File 'bitcoin_knots.service' has been created and user inserted correctly.${NC}"
-    log "Service configuration saved to: /etc/systemd/system/bitcoin_knots.service"
-    echo "Service configuration saved to: /etc/systemd/system/bitcoin_knots.service"
+    log "Service configuration saved to: /usr/lib/systemd/system/bitcoin_knots.service"
+    echo "Service configuration saved to: /usr/lib/systemd/system/bitcoin_knots.service"
     
     # Enable and start the service if requested
     read -p "Do you want to enable and start the service now? (y/n): " start_service
