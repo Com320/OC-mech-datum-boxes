@@ -25,6 +25,35 @@ get_script_dir() {
 SCRIPT_DIR=$(get_script_dir)
 export SETTINGS_FILE="$SCRIPT_DIR/settings.json"
 
+# Update a value in a JSON file (supports one-level dot notation for nested keys)
+# Usage: update_json_value "key" "new_value" file
+update_json_value() {
+    local key="$1"
+    local new_value="$2"
+    local file="$3"
+
+    # Escape & and | for sed replacement
+    local escaped_value
+    escaped_value=$(printf '%s' "$new_value" | sed -e 's/[&|]/\\&/g')
+
+    if [[ "$key" == *"."* ]]; then
+        local parent="${key%%.*}"
+        local child="${key#*.}"
+        # More robust: allow for whitespace, tabs, and trailing commas
+    sed -i -E "/\"$parent\"[[:space:]]*:[[:space:]]*\\{/,/\\}/ {s/(\"$child\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1$escaped_value\2/}" "$file"
+        # Check if the update was successful
+        if ! grep -q "\"$child\": \"$escaped_value\"" "$file"; then
+            echo "Warning: Failed to update $key in $file" >&2
+        fi
+    else
+        sed -i -E "s/(\"$key\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1$escaped_value\2/" "$file"
+        if ! grep -q "\"$key\": \"$escaped_value\"" "$file"; then
+            echo "Warning: Failed to update $key in $file" >&2
+        fi
+    fi
+}
+export -f update_json_value
+
 # JSON helper function (using sed for simple flat JSON parsing)
 read_json_value() {
     # Usage: read_json_value "key" file
@@ -78,16 +107,6 @@ read_json_bool() {
     fi
 }
 export -f read_json_bool
-
-# JSON helper function for arrays
-read_json_array() {
-    # Usage: read_json_array "key" file
-    # It extracts the lines between the [ and ] for the given key
-    local key="$1"
-    local file="$2"
-    sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
-}
-export -f read_json_array
 
 # JSON helper function for arrays
 read_json_array() {
@@ -192,78 +211,88 @@ export -f log_display
 get_username() {
     # Get username from settings.json
     local username=$(read_json_value "user.username" "$SETTINGS_FILE")
-    
+
     if [ -z "$username" ]; then
         # No username found in settings
         log "${RED}Could not determine username from settings.json.${NC}"
         echo -e "${RED}Could not determine username from settings.json.${NC}" >&2
-        
+
         # Prompt the user for input
         local user_input=""
         while true; do
-            read -p "Enter the username: " user_input
+            printf "Enter the username: " >&2
+            read user_input
+            user_input="$(echo "$user_input" | xargs)"  # Trim whitespace
             log "User entered: $user_input"
-            
-            read -p "Is this correct? (y/n): " confirm
+
+            printf "Is this correct? (y/n): " >&2
+            read confirm
             if [[ "$confirm" == "y" ]]; then
                 username="$user_input"
                 # Update settings file with the new username
                 update_json_value "user.username" "$username" "$SETTINGS_FILE"
                 log "Updated settings.json with new username: $username"
+                echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
                 break
             fi
             log "User requested to try again"
-            echo "Let's try again."
+            printf "Let's try again.\n" >&2
         done
     else
         # Username found in settings
         log "Found username in settings.json: $username"
-        
-        # Ask for confirmation
-        echo -e "Using username from settings.json: $username" >&2
-        read -p "Is this correct? (y/n): " confirm
-        
+
+    printf "Using username from settings.json: $username\n" >&2
+    printf "Is this correct? (y/n): " >&2
+    read confirm
+
         if [[ "$confirm" != "y" ]]; then
             log "User rejected the username from settings"
-            
+
             # Let the user override the settings value
             local user_input=""
             while true; do
-                read -p "Enter the username: " user_input
+                printf "Enter the username: " >&2
+                read user_input
+                user_input="$(echo "$user_input" | xargs)"  # Trim whitespace
                 log "User entered: $user_input"
-                
-                read -p "Is this correct? (y/n): " confirm
+
+                printf "Is this correct? (y/n): " >&2
+                read confirm
                 if [[ "$confirm" == "y" ]]; then
                     username="$user_input"
                     # Update settings file with the new username
                     update_json_value "user.username" "$username" "$SETTINGS_FILE"
                     log "Updated settings.json with new username: $username"
-                    log_display "${YELLOW}Settings file updated with new username: $username${NC}"
+                    echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
                     break
                 fi
                 log "User requested to try again"
-                echo "Let's try again."
+                printf "Let's try again.\n" >&2
             done
         fi
     fi
-    
+
+    # Trim whitespace from username (defensive)
+    username="$(echo "$username" | xargs)"
+
     # Sanity check input
     if [ -z "$username" ]; then
         log "${RED}Username must be provided.${NC}"
         echo -e "${RED}Username must be provided.${NC}" >&2
         return 1
     fi
-    
+
     # Check if the user exists using getent for better compatibility
     if ! getent passwd "$username" > /dev/null 2>&1; then
         log "${RED}User $username does not exist. Please create the user first.${NC}"
         echo -e "${RED}User $username does not exist. Please create the user first.${NC}" >&2
         return 1
     fi
-    
+
     # Log success but don't let it affect the output
     log "Username verified: $username"
-    
+
     # Return ONLY the username, nothing else
     printf "%s" "$username"
 }
@@ -272,43 +301,43 @@ get_username() {
 # Usage: get_home_directory "username"
 get_home_directory() {
     local username="$1"
-    
+
     if [ -z "$username" ]; then
         log_display "${RED}No username provided to get_home_directory function.${NC}"
         return 1
     fi
-    
+
     # Try multiple methods to get home directory
     local home_dir=""
-    
+
     # Method 1: getent passwd
     if command -v getent &> /dev/null; then
         home_dir=$(getent passwd "$username" 2>/dev/null | cut -d: -f6)
     fi
-    
+
     # Method 2: eval echo ~ (if Method 1 failed)
     if [ -z "$home_dir" ]; then
         home_dir=$(eval echo "~$username" 2>/dev/null)
     fi
-    
+
     # Method 3: check /etc/passwd directly (if all else fails)
     if [ -z "$home_dir" ] && [ -f "/etc/passwd" ]; then
         home_dir=$(grep "^$username:" /etc/passwd 2>/dev/null | cut -d: -f6)
     fi
-    
+
     # Verify we have a result
     if [ -z "$home_dir" ]; then
         log_display "${RED}Could not determine home directory for user $username.${NC}"
         return 1
     fi
-    
+
     # Verify the directory exists
     if [ ! -d "$home_dir" ]; then
         log_display "${RED}Home directory for $username does not exist: $home_dir${NC}"
         log_display "${YELLOW}Note: The user exists but their home directory is missing.${NC}"
         return 1
     fi
-    
+
     # Return the home directory
     log "Home directory for $username: $home_dir"
     echo "$home_dir"
