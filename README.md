@@ -42,7 +42,7 @@ This architecture makes the codebase easier to maintain and extend.
 
 ### Quick Start
 
-**Important:** The repository must be cloned to the exact path `/root/OC-mech-datum-boxes`. If it is cloned elsewhere, some scripts and configuration steps will fail.
+**Important:** The repository must be cloned to the path specified by `scripts_path` in `settings.json` (default: `/root/OC-mech-datum-boxes`). If you change this value in `settings.json`, you must also clone the repository to the same path, or update both to match. If the paths do not match, some scripts and configuration steps will fail.
 
 1. **Clone this repository to `/root/OC-mech-datum-boxes`:**
 
@@ -79,18 +79,19 @@ This architecture makes the codebase easier to maintain and extend.
 
 ## Configuration
 
+
 The `settings.json` file contains key configuration parameters:
 - User account settings (username and creation options)
 - Log directory path
-- Scripts path (`scripts_path`): The directory where the scripts are installed (default: "/root/OC-mech-datum-boxes")
+- **Scripts path (`scripts_path`)**: The directory where the scripts are installed and where the repository must be cloned. This must match the actual clone location (default: "/root/OC-mech-datum-boxes"). If you change this value, you must also clone the repository to the same path, or update both to match.
 - Build options:
-  - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
-  - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
-  - `verify_signatures`: Whether to verify Git tag signatures for Bitcoin Knots (default: true)
-  - `key_fingerprint`: PGP key fingerprint used to verify signatures (default: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A)
+   - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
+   - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
+   - `verify_signatures`: Whether to verify Git tag signatures for Bitcoin Knots (default: true)
+   - `key_fingerprint`: PGP key fingerprint used to verify signatures (default: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A)
 - DATUM options:
-  - `coinbase_tag_primary`: Primary coinbase tag (default: DATUM)
-  - `coinbase_tag_secondary`: Secondary coinbase tag (default: empty)
+   - `coinbase_tag_primary`: Primary coinbase tag (default: DATUM)
+   - `coinbase_tag_secondary`: Secondary coinbase tag (default: empty)
 - Required system packages for building and running the services
 
 Please review and customize this file before running the scripts.
@@ -103,11 +104,6 @@ The build process includes security measures to ensure the integrity of the Bitc
 - **Isolated GPG Environment**: Signature verification takes place in an isolated GPG environment to avoid conflicts with existing keys
 
 These features are enabled by default but can be disabled in the settings.json file if needed.
-
-
-## Known Issues
-
-- **Repository Path Requirement:** The scripts expect the repository to be located at `/root/OC-mech-datum-boxes`. Cloning to any other path will cause some scripts and configuration steps to fail. This is a known limitation and will be addressed in future updates.
 
 ## Important Note
 

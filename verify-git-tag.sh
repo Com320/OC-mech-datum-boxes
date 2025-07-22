@@ -10,11 +10,17 @@
 SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/utils.sh"
 
+
 # Initialize logging
 init_logging "verify-git-tag"
 
 # Exit on any error
 set -e
+
+# Create an isolated GPG environment
+GNUPGHOME=$(mktemp -d)
+export GNUPGHOME
+trap 'rm -rf "$GNUPGHOME"' EXIT
 
 REPO_PATH="$1"
 TAG="$2"
@@ -30,9 +36,9 @@ fi
 # Check if we can access the repository
 cd "$REPO_PATH" || { log_display "${RED}Error: Cannot change to repository directory $REPO_PATH${NC}"; exit 1; }
 
-# Import the key if it's not already in the keyring
+# Import the key if it's not already in the isolated keyring
 if ! gpg --list-keys "$FINGERPRINT" &> /dev/null; then
-    log_display "Importing key with fingerprint: $FINGERPRINT"
+    log_display "Importing key with fingerprint: $FINGERPRINT (isolated GPG environment)"
     import_output=$(gpg --keyserver keyserver.ubuntu.com --recv-keys "$FINGERPRINT" 2>&1)
     if [ $? -ne 0 ]; then
         log_display "${YELLOW}Failed to import key from Ubuntu keyserver, trying keys.openpgp.org...${NC}"
@@ -71,9 +77,9 @@ log "=== Git Verification Output End ==="
 
 # Check the verification result
 if [ $verification_result -eq 0 ]; then
-    log "Signature verification successful for tag: $TAG"
+    log_display "${GREEN}Signature verification successful for tag: $TAG${NC}"
     exit 0
 else
-    log "Error: Tag signature verification failed"
+    log_display "${RED}Error: Tag signature verification failed for tag: $TAG${NC}"
     exit 1
 fi

@@ -110,7 +110,12 @@ fi
 
 # Always print a summary of the log directory location
 echo "-----------------------------------------"
-echo "All process logs are located in: $user_logdir"
+if [[ "$logpath" = /* ]]; then
+  effective_logdir="$logpath"
+else
+  effective_logdir="$scripts_path/$logpath"
+fi
+echo "All process logs are located in: $effective_logdir"
 echo "Review these logs for troubleshooting and details about each step."
 
 if [ $ERRORS -eq 0 ]; then
