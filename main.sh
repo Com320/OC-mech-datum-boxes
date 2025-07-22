@@ -99,6 +99,7 @@ if [ -d "$user_logdir" ]; then
   done
 fi
 if [ ${#copied_files[@]} -gt 0 ]; then
+
   echo "Copied the following user log files to $dest_dir:"
   for f in "${copied_files[@]}"; do
     echo "  $f"
@@ -106,6 +107,11 @@ if [ ${#copied_files[@]} -gt 0 ]; then
 else
   echo "No user log files found in $user_logdir to copy."
 fi
+
+# Always print a summary of the log directory location
+echo "-----------------------------------------"
+echo "All process logs are located in: $user_logdir"
+echo "Review these logs for troubleshooting and details about each step."
 
 if [ $ERRORS -eq 0 ]; then
   echo -e "${GREEN}Process completed successfully with no errors.${NC}"
