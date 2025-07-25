@@ -143,7 +143,7 @@ else
     # Simplify the ExecStart line to only use the binary path without arguments
     # This ensures ALL arguments are completely removed
     log "Setting ExecStart path to use /usr/local/bin/bitcoind with system paths"
-    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind|g" "$TMP_SERVICE_FILE"
+    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind startupnotify='systemd-notify --ready' -shutdownnotify='systemd-notify --stopping|g" "$TMP_SERVICE_FILE"
     
     # Remove any multi-line ExecStart continuation lines if they exist
     sed -i '/^[[:space:]]*-/d' "$TMP_SERVICE_FILE"
@@ -209,11 +209,11 @@ if [ $? -eq 0 ]; then
         log "Running: systemctl enable bitcoin_knots.service"
         sudo systemctl enable bitcoin_knots.service
         
-        log_display "${YELLOW}Starting Bitcoin service in the background...${NC}"
+        log_display "${YELLOW}Starting Bitcoin service...${NC}"
         log "Running: systemctl start bitcoin_knots.service"
         
-        # Start the service in the background to prevent hanging
-        sudo systemctl start bitcoin_knots.service &
+        # Start the service
+        sudo systemctl start bitcoin_knots.service
         
         # Wait a brief moment for the service to register
         sleep 1

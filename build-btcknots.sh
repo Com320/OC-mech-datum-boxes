@@ -237,6 +237,18 @@ else
     exit 1
 fi
 
+# Repeat the same checks for bitcoin-cli
+cli_binary="$bitcoin_src/src/bitcoin-cli"
+log "Checking bitcoin-cli binary at known path: $cli_binary"
+if su - "$username" -c "test -f $cli_binary && test -x $cli_binary"; then
+    log "Verified: bitcoin-cli exists and is executable at $cli_binary"
+else
+    log "${RED}Error: bitcoin-cli not found or not executable at expected location: $cli_binary${NC}"
+    log "Searching for bitcoin-cli binary in alternative locations..."
+    su - "$username" -c "find $bitcoin_src -name 'bitcoin-cli' -type f" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
 # Create bin directory if it doesn't exist
 log "Ensuring bin directory exists at $bin_dir"
 mkdir -p "$bin_dir"
@@ -251,12 +263,30 @@ else
     exit 1
 fi
 
+# Copy bitcoin-cli to user's bin directory
+log "Copying bitcoin-cli to user's bin directory..."
+if su - "$username" -c "cp $cli_binary $bin_dir/" 2>&1 | tee -a "$LOG_FILE"; then
+    log "bitcoin-cli copied to $bin_dir/bitcoin-cli successfully."
+else
+    log "${RED}Error: Failed to copy bitcoin-cli to $bin_dir/bitcoin-cli${NC}"
+    exit 1
+fi
+
 # Install the binary directly to /usr/local/bin for system-wide accessibility
 log "Installing binary to /usr/local/bin..."
 if cp "$built_binary" /usr/local/bin/bitcoind 2>&1 | tee -a "$LOG_FILE"; then
     log "Binary copied to /usr/local/bin/bitcoind successfully."
 else
     log "${RED}Error: Failed to copy binary to /usr/local/bin/bitcoind${NC}"
+    exit 1
+fi
+
+# Install bitcoin-cli to /usr/local/bin for system-wide accessibility
+log "Installing bitcoin-cli to /usr/local/bin..."
+if cp "$cli_binary" /usr/local/bin/bitcoin-cli 2>&1 | tee -a "$LOG_FILE"; then
+    log "bitcoin-cli copied to /usr/local/bin/bitcoin-cli successfully."
+else
+    log "${RED}Error: Failed to copy bitcoin-cli to /usr/local/bin/bitcoin-cli${NC}"
     exit 1
 fi
 
@@ -276,6 +306,21 @@ else
     exit 1
 fi
 
+# Set proper ownership and permissions for bitcoin-cli
+if chown root:root /usr/local/bin/bitcoin-cli; then
+    log "bitcoin-cli ownership set to root:root."
+else
+    log "${RED}Error: Failed to set bitcoin-cli ownership${NC}"
+    exit 1
+fi
+
+if chmod 755 /usr/local/bin/bitcoin-cli; then
+    log "bitcoin-cli permissions set to 755."
+else
+    log "${RED}Error: Failed to set bitcoin-cli permissions${NC}"
+    exit 1
+fi
+
 # Verify the binary works
 log "Verifying binary..."
 if /usr/local/bin/bitcoind --version | head -n1 >> "$LOG_FILE" 2>&1; then
@@ -284,6 +329,17 @@ else
     log "${RED}Error: Cannot execute bitcoind. Check library dependencies:${NC}"
     ldd /usr/local/bin/bitcoind >> "$LOG_FILE" 2>&1 || echo "ldd command failed" >> "$LOG_FILE"
     file /usr/local/bin/bitcoind >> "$LOG_FILE" 2>&1
+    exit 1
+fi
+
+# Verify bitcoin-cli works
+log "Verifying bitcoin-cli..."
+if /usr/local/bin/bitcoin-cli --version | head -n1 >> "$LOG_FILE" 2>&1; then
+    log "bitcoin-cli is working correctly."
+else
+    log "${RED}Error: Cannot execute bitcoin-cli. Check library dependencies:${NC}"
+    ldd /usr/local/bin/bitcoin-cli >> "$LOG_FILE" 2>&1 || echo "ldd command failed" >> "$LOG_FILE"
+    file /usr/local/bin/bitcoin-cli >> "$LOG_FILE" 2>&1
     exit 1
 fi
 
