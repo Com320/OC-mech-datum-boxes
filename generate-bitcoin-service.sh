@@ -143,7 +143,7 @@ else
     # Simplify the ExecStart line to only use the binary path without arguments
     # This ensures ALL arguments are completely removed
     log "Setting ExecStart path to use /usr/local/bin/bitcoind with system paths"
-    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind startupnotify='systemd-notify --ready' -shutdownnotify='systemd-notify' --stopping|g" "$TMP_SERVICE_FILE"
+    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind -startupnotify='systemd-notify --ready' -shutdownnotify='systemd-notify --stopping'|g" "$TMP_SERVICE_FILE"
     
     # Remove any multi-line ExecStart continuation lines if they exist
     sed -i '/^[[:space:]]*-/d' "$TMP_SERVICE_FILE"
