@@ -207,3 +207,49 @@ else
     log_display "${RED}An error occurred while creating the file.${NC}"
     exit 1
 fi
+
+# Check if default_conf exists
+if [ -f "$default_conf" ]; then
+    log_display "default_conf file found at $default_conf."
+else
+    log_display "${RED}Error: default_conf file not found at $default_conf.${NC}"
+    exit 1
+fi
+
+# Create an alias (symlink) from default_conf to default_data
+if ln -sfn "$default_conf" "$default_data"; then
+    log_display "Symlink created from $default_conf to $default_data."
+else
+    log_display "${RED}Error: Failed to create symlink from $default_conf to $default_data.${NC}"
+    exit 1
+fi
+
+
+# Get user's home directory
+user_home=$(get_home_directory "$username")
+bitcoin_dir="$user_home/.bitcoin"
+
+# Display colored warning and info before asking the user
+log_display "${YELLOW}You are about to configure the /home/$username user to use bitcoin-cli without specifying the $default_data directory each time.${NC}"
+log_display "${RED}IMPORTANT: By choosing yes, it will permanently delete anything in $user_home/.bitcoin. (THIS CANNOT BE UNDONE)${NC}"
+log_display "${YELLOW}If this is a new installation, this directory should not contain any critical information.${NC}"
+
+# Ask user for confirmation
+read -p "Do you want to proceed? (y/n): " configure_symlink
+if [[ "$configure_symlink" == "y" ]]; then
+    # Remove the .bitcoin directory if it exists
+    if [ -L "$bitcoin_dir" ] || [ -d "$bitcoin_dir" ]; then
+        log_display "Removing existing .bitcoin directory or symlink at $bitcoin_dir."
+        rm -rf "$bitcoin_dir"
+    fi
+
+    # Create symlink for .bitcoin to default_data
+    if ln -sfn "$default_data" "$bitcoin_dir"; then
+        log_display "${GREEN}Symlink created from $bitcoin_dir to $default_data.${NC}"
+    else
+        log_display "${RED}Error: Failed to create symlink from $bitcoin_dir to $default_data.${NC}"
+        exit 1
+    fi
+else
+    log_display "Skipped configuring $username/.bitcoin symlink to $default_data."
+fi
