@@ -229,27 +229,32 @@ fi
 user_home=$(get_home_directory "$username")
 bitcoin_dir="$user_home/.bitcoin"
 
-# Display colored warning and info before asking the user
-log_display "${YELLOW}You are about to configure the /home/$username user to use bitcoin-cli without specifying the $default_data directory each time.${NC}"
-log_display "${RED}IMPORTANT: By choosing yes, it will permanently delete anything in $user_home/.bitcoin. (THIS CANNOT BE UNDONE)${NC}"
-log_display "${YELLOW}If this is a new installation, this directory should not contain any critical information.${NC}"
+# Ask user if they want bitcoin-cli to work without specifying $default_data, and handle .bitcoin accordingly
+log_display "${YELLOW}Would you like bitcoin-cli to work without specifying the datadir argument?${NC}"
+log_display "${YELLOW}If you choose yes, this script will:\n  1. Rename any existing $bitcoin_dir directory or symlink to a backup with a timestamp (e.g., $bitcoin_dir.backup_YYYYMMDD_HHMMSS).\n  2. Create a symlink from $default_data to $bitcoin_dir, so bitcoin-cli and related tools will use $default_data by default.${NC}"
+log_display "${RED}IMPORTANT: This does NOT delete your data, but the original $bitcoin_dir will no longer be used by default. If this is a new installation, $bitcoin_dir should not contain any critical information.${NC}"
 
-# Ask user for confirmation
-read -p "Do you want to proceed? (y/n): " configure_symlink
-if [[ "$configure_symlink" == "y" ]]; then
-    # Remove the .bitcoin directory if it exists
+read -p "Do you want to set up bitcoin-cli to work without specifying --datadir? (y/n): " setup_bitcoin_symlink
+if [[ "$setup_bitcoin_symlink" == "y" ]]; then
     if [ -L "$bitcoin_dir" ] || [ -d "$bitcoin_dir" ]; then
-        log_display "Removing existing .bitcoin directory or symlink at $bitcoin_dir."
-        rm -rf "$bitcoin_dir"
+        timestamp=$(date +%Y%m%d_%H%M%S)
+        new_bitcoin_dir="$bitcoin_dir.backup_$timestamp"
+        if mv "$bitcoin_dir" "$new_bitcoin_dir"; then
+            log_display "${YELLOW}Renamed existing $bitcoin_dir to $new_bitcoin_dir${NC}"
+        else
+            log_display "${RED}Error: Failed to rename $bitcoin_dir to $new_bitcoin_dir${NC}"
+            exit 1
+        fi
+    else
+        log_display "No existing $bitcoin_dir directory or symlink to rename."
     fi
-
-    # Create symlink for .bitcoin to default_data
+    # Create the symlink
     if ln -sfn "$default_data" "$bitcoin_dir"; then
-        log_display "${GREEN}Symlink created from $bitcoin_dir to $default_data.${NC}"
+        log_display "${GREEN}Symlink created: $bitcoin_dir -> $default_data${NC}"
     else
         log_display "${RED}Error: Failed to create symlink from $bitcoin_dir to $default_data.${NC}"
         exit 1
     fi
 else
-    log_display "Skipped configuring $username/.bitcoin symlink to $default_data."
+    log_display "Skipped configuring $bitcoin_dir symlink to $default_data. You will need to specify --datadir $default_data when using bitcoin-cli if your data directory is not the default."
 fi
