@@ -16,14 +16,14 @@ if [ -z "$username" ]; then
 fi
 
 # Get coinbase tag settings from settings.json (with defaults if not found)
-coinbase_tag_primary=$(read_json_value "coinbase_tag_primary" "$SETTINGS_FILE")
+coinbase_tag_primary=$(read_json_value "datum_options.coinbase_tag_primary" "$SETTINGS_FILE")
 if [ -z "$coinbase_tag_primary" ]; then
     log_display "${YELLOW}Could not determine coinbase_tag_primary from settings.json. Using default 'DATUM'.${NC}"
     coinbase_tag_primary="DATUM"  # Default value
     log "Using default coinbase_tag_primary: $coinbase_tag_primary"
 fi
 
-coinbase_tag_secondary=$(read_json_value "coinbase_tag_secondary" "$SETTINGS_FILE")
+coinbase_tag_secondary=$(read_json_value "datum_options.coinbase_tag_secondary" "$SETTINGS_FILE")
 if [ -z "$coinbase_tag_secondary" ]; then
     coinbase_tag_secondary=""  # Default empty secondary tag
     log "Using empty coinbase_tag_secondary"

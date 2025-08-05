@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Set up the trap for interrupt signals
+trap cleanup INT
+
+# Source shared utility functions
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
+
 # Define a cleanup function to handle interrupts
 cleanup() {
     log_display "${YELLOW}Script interrupted by user. Bitcoin service setup is complete.${NC}"
@@ -8,13 +15,6 @@ cleanup() {
     log_display "${GREEN}To check sync status: ${NC}sudo journalctl -u bitcoin_knots.service -f"
     exit 0
 }
-
-# Set up the trap for interrupt signals
-trap cleanup INT
-
-# Source shared utility functions
-SCRIPT_DIR="$(dirname "$0")"
-source "$SCRIPT_DIR/utils.sh"
 
 # Initialize logging for this script
 init_logging "generate_bitcoin_service"
@@ -39,6 +39,7 @@ log "Using home directory: $user_home"
 
 # Use the directly installed binary
 BITCOIN_BINARY="/usr/local/bin/bitcoind"
+
 
 # Verify the binary exists and is executable
 log "Verifying Bitcoin binary at $BITCOIN_BINARY..."
@@ -80,6 +81,13 @@ else
 fi
 
 log "Using Bitcoin binary path: $BITCOIN_BINARY"
+
+# Get default_conf from settings.json
+default_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE")
+if [ -z "$default_conf" ]; then
+    default_conf="/etc/bitcoin/bitcoin.conf"
+    log_display "${YELLOW}No default_conf found in settings.json, using $default_conf${NC}"
+fi
 
 # Path to the template service file in the cloned Bitcoin Knots repository
 TEMPLATE_PATH="$user_home/bitcoin/src/bitcoin/contrib/init/bitcoind.service"
@@ -143,7 +151,7 @@ else
     # Simplify the ExecStart line to only use the binary path without arguments
     # This ensures ALL arguments are completely removed
     log "Setting ExecStart path to use /usr/local/bin/bitcoind with system paths"
-    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind -startupnotify='systemd-notify --ready' -shutdownnotify='systemd-notify --stopping'|g" "$TMP_SERVICE_FILE"
+    sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=$default_conf -startupnotify='systemd-notify --ready' -shutdownnotify='systemd-notify --stopping'|g" "$TMP_SERVICE_FILE"
     
     # Remove any multi-line ExecStart continuation lines if they exist
     sed -i '/^[[:space:]]*-/d' "$TMP_SERVICE_FILE"

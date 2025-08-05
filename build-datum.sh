@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/utils.sh"
 init_logging "build-datum"
 
 # Get username from settings.json
-username=$(read_json_value "username" "$SETTINGS_FILE")
+username=$(read_json_value "user.username" "$SETTINGS_FILE")
 if [ -z "$username" ]; then
     log_display "${RED}Could not determine username from settings.json. Using default 'bitcoin'.${NC}"
     username="bitcoin"

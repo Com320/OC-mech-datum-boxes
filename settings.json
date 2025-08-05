@@ -15,6 +15,10 @@
         "coinbase_tag_primary": "DATUM",
         "coinbase_tag_secondary": ""
     },
+    "bitcoin": {
+        "default_conf": "/etc/bitcoin/bitcoin.conf",
+        "default_data": "/var/lib/bitcoind"
+    },
     "packages": [
         "git",
         "pkg-config",
@@ -40,6 +44,7 @@
         "systemtap-sdt-dev",
         "sudo",
         "vim",
-        "gnupg"
-    ]
-}
+        "gnupg",
+        "jq"
+        ]
+    }

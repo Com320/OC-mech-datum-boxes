@@ -1,6 +1,11 @@
 #!/bin/bash
 # utils.sh - Common utility functions for Datum Autopilot scripts
 
+# USAGE NOTE:
+# To use these functions in other scripts, source this file:
+#   source ./utils.sh
+# Do NOT run it directly unless you want to run the test suite.
+
 # Define colors
 export GREEN='\033[0;32m'
 export RED='\033[0;31m'
@@ -25,6 +30,7 @@ get_script_dir() {
 SCRIPT_DIR=$(get_script_dir)
 export SETTINGS_FILE="$SCRIPT_DIR/settings.json"
 
+
 # Update a value in a JSON file (supports one-level dot notation for nested keys)
 # Usage: update_json_value "key" "new_value" file
 update_json_value() {
@@ -32,74 +38,62 @@ update_json_value() {
     local new_value="$2"
     local file="$3"
 
-    # Escape & and | for sed replacement
-    local escaped_value
-    escaped_value=$(printf '%s' "$new_value" | sed -e 's/[&|]/\\&/g')
-
-    if [[ "$key" == *"."* ]]; then
-        local parent="${key%%.*}"
-        local child="${key#*.}"
-        # More robust: allow for whitespace, tabs, and trailing commas
-    sed -i -E "/\"$parent\"[[:space:]]*:[[:space:]]*\\{/,/\\}/ {s/(\"$child\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1$escaped_value\2/}" "$file"
-        # Check if the update was successful
-        if ! grep -q "\"$child\": \"$escaped_value\"" "$file"; then
-            echo "Warning: Failed to update $key in $file" >&2
-        fi
-    else
-        sed -i -E "s/(\"$key\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1$escaped_value\2/" "$file"
-        if ! grep -q "\"$key\": \"$escaped_value\"" "$file"; then
-            echo "Warning: Failed to update $key in $file" >&2
-        fi
+    if [ ! -f "$file" ]; then
+        echo "Warning: File not found: $file" >&2
+        return 1
     fi
+
+    # Use jq for robust JSON updates
+    if [[ "$key" == *"."* ]]; then
+        jq --arg value "$new_value" ".${key} = \$value" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    else
+        jq --arg value "$new_value" ".\"$key\" = \$value" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    fi
+
+    # Check if the update was successful
+    if ! jq -e ".${key} == \"$new_value\"" "$file" > /dev/null; then
+        echo "Warning: Failed to update $key in $file" >&2
+        return 1
+    fi
+    return 0
 }
 export -f update_json_value
 
-# JSON helper function (using sed for simple flat JSON parsing)
+
+# JSON helper function using jq
 read_json_value() {
     # Usage: read_json_value "key" file
-    # Supports nested keys with dot notation: "parent.key"
     local key="$1"
     local file="$2"
-    
-    # Check if we're dealing with a nested key
-    if [[ "$key" == *"."* ]]; then
-        # Split the key into parent and child
-        local parent="${key%%.*}"
-        local child="${key#*.}"
-        
-        # Extract the parent object first, then the child property
-        # This handles one level of nesting
-        sed -n "/${parent}\":/,/}/p" "$file" | sed -n "s/.*\"$child\": *\"\([^\"]*\)\".*/\1/p"
+    if [ ! -f "$file" ]; then
+        echo "" # Return empty if file not found
+        return 1
+    fi
+    # If key contains a dot, treat as nested (e.g., user.username)
+    if [[ "$key" == *.* ]]; then
+        jq -r ".${key} // empty" "$file"
     else
-        # Original implementation for non-nested keys
-        sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p" "$file"
+        jq -r ".\"$key\" // empty" "$file"
     fi
 }
 export -f read_json_value
 
-# JSON helper function for boolean values
+
+# JSON helper function for boolean values using jq
 read_json_bool() {
     # Usage: read_json_bool "key" file
     # Returns 0 (success) if value is "true", 1 (failure) if "false"
-    # Supports nested keys with dot notation: "parent.key"
     local key="$1"
     local file="$2"
-    
-    local value=""
-    
-    # Check if we're dealing with a nested key
-    if [[ "$key" == *"."* ]]; then
-        # Split the key into parent and child
-        local parent="${key%%.*}"
-        local child="${key#*.}"
-        
-        # Extract the parent object first, then the child property
-        value=$(sed -n "/${parent}\":/,/}/p" "$file" | sed -n "s/.*\"$child\": *\(true\|false\).*/\1/p")
-    else
-        # Original implementation for non-nested keys
-        value=$(sed -n "s/.*\"$key\": *\(true\|false\).*/\1/p" "$file")
+    if [ ! -f "$file" ]; then
+        return 1
     fi
-    
+    local value=""
+    if [[ "$key" == *"."* ]]; then
+        value=$(jq -r ".${key} // empty" "$file")
+    else
+        value=$(jq -r ".\"$key\" // empty" "$file")
+    fi
     if [ "$value" == "true" ]; then
         return 0
     else
@@ -108,13 +102,20 @@ read_json_bool() {
 }
 export -f read_json_bool
 
-# JSON helper function for arrays
+
+# JSON helper function for arrays using jq
 read_json_array() {
     # Usage: read_json_array "key" file
-    # It extracts the lines between the [ and ] for the given key
     local key="$1"
     local file="$2"
-    sed -n "/\"$key\": *\[/,/\]/p" "$file" | sed '1d;$d'
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    if [[ "$key" == *"."* ]]; then
+        jq -r ".${key}[]?" "$file"
+    else
+        jq -r ".\"$key\"[]?" "$file"
+    fi
 }
 export -f read_json_array
 
@@ -209,27 +210,21 @@ export -f log_display
 # Get username from settings or prompt user
 # Usage: get_username
 get_username() {
-    # Get username from settings.json
-    local username=$(read_json_value "user.username" "$SETTINGS_FILE")
+    local username
+    username=$(read_json_value "user.username" "$SETTINGS_FILE")
 
     if [ -z "$username" ]; then
-        # No username found in settings
         log "${RED}Could not determine username from settings.json.${NC}"
         echo -e "${RED}Could not determine username from settings.json.${NC}" >&2
-
-        # Prompt the user for input
-        local user_input=""
         while true; do
             printf "Enter the username: " >&2
             read user_input
-            user_input="$(echo "$user_input" | xargs)"  # Trim whitespace
+            user_input=$(echo "$user_input" | xargs)
             log "User entered: $user_input"
-
             printf "Is this correct? (y/n): " >&2
             read confirm
-            if [[ "$confirm" == "y" ]]; then
+            if [ "$confirm" = "y" ]; then
                 username="$user_input"
-                # Update settings file with the new username
                 update_json_value "user.username" "$username" "$SETTINGS_FILE"
                 log "Updated settings.json with new username: $username"
                 echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
@@ -239,29 +234,21 @@ get_username() {
             printf "Let's try again.\n" >&2
         done
     else
-        # Username found in settings
         log "Found username in settings.json: $username"
-
-    printf "Using username from settings.json: $username\n" >&2
-    printf "Is this correct? (y/n): " >&2
-    read confirm
-
-        if [[ "$confirm" != "y" ]]; then
+        printf "Using username from settings.json: $username\n" >&2
+        printf "Is this correct? (y/n): " >&2
+        read confirm
+        if [ "$confirm" != "y" ]; then
             log "User rejected the username from settings"
-
-            # Let the user override the settings value
-            local user_input=""
             while true; do
                 printf "Enter the username: " >&2
                 read user_input
-                user_input="$(echo "$user_input" | xargs)"  # Trim whitespace
+                user_input="$(echo "$user_input" | xargs)"
                 log "User entered: $user_input"
-
                 printf "Is this correct? (y/n): " >&2
                 read confirm
-                if [[ "$confirm" == "y" ]]; then
+                if [ "$confirm" = "y" ]; then
                     username="$user_input"
-                    # Update settings file with the new username
                     update_json_value "user.username" "$username" "$SETTINGS_FILE"
                     log "Updated settings.json with new username: $username"
                     echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
@@ -273,27 +260,18 @@ get_username() {
         fi
     fi
 
-    # Trim whitespace from username (defensive)
     username="$(echo "$username" | xargs)"
-
-    # Sanity check input
     if [ -z "$username" ]; then
         log "${RED}Username must be provided.${NC}"
         echo -e "${RED}Username must be provided.${NC}" >&2
         return 1
     fi
-
-    # Check if the user exists using getent for better compatibility
     if ! getent passwd "$username" > /dev/null 2>&1; then
         log "${RED}User $username does not exist. Please create the user first.${NC}"
         echo -e "${RED}User $username does not exist. Please create the user first.${NC}" >&2
         return 1
     fi
-
-    # Log success but don't let it affect the output
     log "Username verified: $username"
-
-    # Return ONLY the username, nothing else
     printf "%s" "$username"
 }
 
@@ -360,7 +338,18 @@ test_utils() {
         echo "Please create a settings.json file in the same directory as utils.sh"
         return 1
     fi
-      # Test read_json_value function with username and logpath
+
+        # Robust tree view: print all key paths and values, indented by depth (compatible with older jq)
+        echo -e "\n${GREEN}Dumping all key-value pairs in settings.json (tree view):${NC}"
+        jq -r '
+            paths(scalars) as $p
+            | (reduce range(0; ($p | length)-1) as $i (""; . + "\t"))
+                + ([ $p[] | tostring ] | join("."))
+                + ": "
+                + (getpath($p) | tostring)
+        ' "$SETTINGS_FILE"
+
+    # Test read_json_value function with username and logpath
     echo -e "\n${GREEN}Testing read_json_value() function:${NC}"
     echo "Username from settings: $(read_json_value "user.username" "$SETTINGS_FILE")"
     echo "Log path from settings: $(read_json_value "logpath" "$SETTINGS_FILE")"
@@ -396,7 +385,7 @@ test_utils() {
             
             # For Bitcoin users, check service template
             if [[ "$username" == "bitcoin" ]]; then
-                local template_path="$user_home/bitcoin/src/bitcoin/contrib/init/bitcoind.service"
+                template_path="$user_home/bitcoin/src/bitcoin/contrib/init/bitcoind.service"
                 echo -e "\n${GREEN}Testing path to Bitcoin service template:${NC}"
                 if [ -f "$template_path" ]; then
                     echo -e "Template found: ${GREEN}$template_path${NC}"
@@ -407,18 +396,18 @@ test_utils() {
                     echo "This may cause the generate-bitcoin-service.sh script to fall back to the simplified template."
                 fi
             fi
-            
+
             # Check Datum paths
             echo -e "\n${GREEN}Testing Datum paths:${NC}"
-            local datum_config="$user_home/datum/datum_gateway_config.json"
-            local datum_executable="$user_home/datum/bin/datum_gateway"
-            
+            datum_config="$user_home/datum/datum_gateway_config.json"
+            datum_executable="$user_home/datum/bin/datum_gateway"
+
             if [ -f "$datum_config" ]; then
                 echo -e "Datum config found: ${GREEN}$datum_config${NC}"
             else
                 echo -e "${RED}Datum config not found at $datum_config${NC}"
             fi
-            
+
             if [ -f "$datum_executable" ]; then
                 echo -e "Datum executable found: ${GREEN}$datum_executable${NC}"
             else

@@ -28,7 +28,7 @@ fi
 init_logging "build-btcknots"
 
 # Read the CPU cores setting (default to 4 if not found)
-cpu_cores=$(grep -o '"cpu_cores": *[0-9]*' "$SETTINGS_FILE" | grep -o '[0-9]*')
+cpu_cores=$(read_json_value "build_options.cpu_cores" "$SETTINGS_FILE")
 if [ -z "$cpu_cores" ]; then
     log_display "${RED}Could not determine cpu_cores from settings.json. Using default '4'.${NC}"
     cpu_cores=4
@@ -36,7 +36,7 @@ if [ -z "$cpu_cores" ]; then
 fi
 
 # Read Bitcoin Knots tag to checkout (default to v28.1.knots20250305 if not found)
-bitcoin_knots_tag=$(read_json_value "bitcoin_knots_tag" "$SETTINGS_FILE")
+bitcoin_knots_tag=$(read_json_value "build_options.bitcoin_knots_tag" "$SETTINGS_FILE")
 if [ -z "$bitcoin_knots_tag" ]; then
     log_display "${RED}Could not determine bitcoin_knots_tag from settings.json. Using default 'v28.1.knots20250305'.${NC}"
     bitcoin_knots_tag="v28.1.knots20250305"
@@ -44,7 +44,7 @@ if [ -z "$bitcoin_knots_tag" ]; then
 fi
 
 # Read signature verification setting (default to true if not found)
-verify_signatures=$(grep -o '"verify_signatures": *[^,}]*' "$SETTINGS_FILE" | grep -o '[^:]*$' | tr -d ' ')
+verify_signatures=$(read_json_value "build_options.verify_signatures" "$SETTINGS_FILE")
 if [ -z "$verify_signatures" ]; then
     log_display "${YELLOW}Could not determine verify_signatures from settings.json. Using default 'true'.${NC}"
     verify_signatures=true
@@ -52,7 +52,7 @@ if [ -z "$verify_signatures" ]; then
 fi
 
 # Read key fingerprint (default if not found)
-key_fingerprint=$(read_json_value "key_fingerprint" "$SETTINGS_FILE")
+key_fingerprint=$(read_json_value "build_options.key_fingerprint" "$SETTINGS_FILE")
 if [ -z "$key_fingerprint" ]; then
     log_display "${YELLOW}Could not determine key_fingerprint from settings.json. Using default '1A3E761F19D2CC7785C5502EA291A2C45D0C504A'.${NC}"
     key_fingerprint="1A3E761F19D2CC7785C5502EA291A2C45D0C504A"

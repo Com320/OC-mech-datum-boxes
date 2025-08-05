@@ -89,9 +89,19 @@ confirm_input() {
     return 0
 }
 
-# Prepare default values
-default_conf="/etc/bitcoin/bitcoin.conf"
-default_data="/var/lib/bitcoind"
+
+# Get default values from settings.json
+default_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE")
+if [ -z "$default_conf" ]; then
+    default_conf="/etc/bitcoin/bitcoin.conf"
+    log_display "${YELLOW}No default_conf found in settings.json, using $default_conf${NC}"
+fi
+
+default_data=$(read_json_value "bitcoin.default_data" "$SETTINGS_FILE")
+if [ -z "$default_data" ]; then
+    default_data="/var/lib/bitcoind"
+    log_display "${YELLOW}No default_data found in settings.json, using $default_data${NC}"
+fi
 
 # Show current user being used
 log_display "Using configuration for user: ${GREEN}$username${NC}"
@@ -102,6 +112,16 @@ log_display "Using system locations by default for improved compatibility with s
 while true; do
     user_input1=$(get_input "Enter location for bitcoin.conf" "$default_conf")
     user_input2=$(get_input "Enter location for data" "$default_data")
+
+    # If user changed from default, write back to settings.json
+    if [ "$user_input1" != "$default_conf" ]; then
+        update_json_value "bitcoin.default_conf" "$user_input1" "$SETTINGS_FILE"
+        log "Updated settings.json: bitcoin.default_conf set to $user_input1"
+    fi
+    if [ "$user_input2" != "$default_data" ]; then
+        update_json_value "bitcoin.default_data" "$user_input2" "$SETTINGS_FILE"
+        log "Updated settings.json: bitcoin.default_data set to $user_input2"
+    fi
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
     user_input5=$(get_rpcauth_input "$default_rpcauth")
@@ -216,11 +236,11 @@ else
     exit 1
 fi
 
-# Create an alias (symlink) from default_conf to default_data
-if ln -sfn "$default_conf" "$default_data"; then
-    log_display "Symlink created from $default_conf to $default_data."
+# Create an alias (symlink) from default_conf to user_input2
+if ln -sfn "$default_conf" "$user_input2"; then
+    log_display "${GREEN}Symlink created from $default_conf -> $user_input2.${NC}"
 else
-    log_display "${RED}Error: Failed to create symlink from $default_conf to $default_data.${NC}"
+    log_display "${RED}Error: Failed to create symlink from $default_conf to $user_input2.${NC}"
     exit 1
 fi
 
@@ -229,9 +249,9 @@ fi
 user_home=$(get_home_directory "$username")
 bitcoin_dir="$user_home/.bitcoin"
 
-# Ask user if they want bitcoin-cli to work without specifying $default_data, and handle .bitcoin accordingly
+# Ask user if they want bitcoin-cli to work without specifying $user_input2, and handle .bitcoin accordingly
 log_display "${YELLOW}Would you like bitcoin-cli to work without specifying the datadir argument?${NC}"
-log_display "${YELLOW}If you choose yes, this script will:\n  1. Rename any existing $bitcoin_dir directory or symlink to a backup with a timestamp (e.g., $bitcoin_dir.backup_YYYYMMDD_HHMMSS).\n  2. Create a symlink from $default_data to $bitcoin_dir, so bitcoin-cli and related tools will use $default_data by default.${NC}"
+log_display "${YELLOW}If you choose yes, this script will:\n  1. Rename any existing $bitcoin_dir directory or symlink to a backup with a timestamp (e.g., $bitcoin_dir.backup_YYYYMMDD_HHMMSS).\n  2. Create a symlink from $user_input2 to $bitcoin_dir, so bitcoin-cli and related tools will use $user_input2 by default.${NC}"
 log_display "${RED}IMPORTANT: This does NOT delete your data, but the original $bitcoin_dir will no longer be used by default. If this is a new installation, $bitcoin_dir should not contain any critical information.${NC}"
 
 read -p "Do you want to set up bitcoin-cli to work without specifying --datadir? (y/n): " setup_bitcoin_symlink
@@ -249,12 +269,12 @@ if [[ "$setup_bitcoin_symlink" == "y" ]]; then
         log_display "No existing $bitcoin_dir directory or symlink to rename."
     fi
     # Create the symlink
-    if ln -sfn "$default_data" "$bitcoin_dir"; then
-        log_display "${GREEN}Symlink created: $bitcoin_dir -> $default_data${NC}"
+    if ln -sfn "$user_input2" "$bitcoin_dir"; then
+        log_display "${GREEN}Symlink created: $bitcoin_dir -> $user_input2${NC}"
     else
-        log_display "${RED}Error: Failed to create symlink from $bitcoin_dir to $default_data.${NC}"
+        log_display "${RED}Error: Failed to create symlink from $bitcoin_dir to $user_input2.${NC}"
         exit 1
     fi
 else
-    log_display "Skipped configuring $bitcoin_dir symlink to $default_data. You will need to specify --datadir $default_data when using bitcoin-cli if your data directory is not the default."
+    log_display "Skipped configuring $bitcoin_dir symlink to $user_input2. You will need to specify --datadir $user_input2 when using bitcoin-cli if your data directory is not the default."
 fi
