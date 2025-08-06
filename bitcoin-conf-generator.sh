@@ -112,16 +112,6 @@ log_display "Using system locations by default for improved compatibility with s
 while true; do
     user_input1=$(get_input "Enter location for bitcoin.conf" "$default_conf")
     user_input2=$(get_input "Enter location for data" "$default_data")
-
-    # If user changed from default, write back to settings.json
-    if [ "$user_input1" != "$default_conf" ]; then
-        update_json_value "bitcoin.default_conf" "$user_input1" "$SETTINGS_FILE"
-        log "Updated settings.json: bitcoin.default_conf set to $user_input1"
-    fi
-    if [ "$user_input2" != "$default_data" ]; then
-        update_json_value "bitcoin.default_data" "$user_input2" "$SETTINGS_FILE"
-        log "Updated settings.json: bitcoin.default_data set to $user_input2"
-    fi
     user_input3=$(get_input "Enter value for 'prune'" "550")
     user_input4=$(get_input "Enter value for 'dbcache'" "100")
     user_input5=$(get_rpcauth_input "$default_rpcauth")
@@ -133,6 +123,24 @@ while true; do
     echo "Value for 'dbcache': $user_input4"
     echo "Value for 'rpcauth': $user_input5"
 
+    # Always set conf_file using failsafe logic
+    if [[ "$user_input1" == */bitcoin.conf ]]; then
+        conf_file="$user_input1"
+    else
+        conf_file="$user_input1/bitcoin.conf"
+    fi
+
+    # If user changed from default_conf, write back to settings.json
+    if [ "$user_input1" != "$default_conf" ]; then
+        update_json_value "bitcoin.default_conf" "$conf_file" "$SETTINGS_FILE"
+        log "Updated settings.json: bitcoin.default_conf set to $conf_file"
+    fi
+    # If user changed from default_data, write back to settings.json
+    if [ "$user_input2" != "$default_data" ]; then
+        update_json_value "bitcoin.default_data" "$user_input2" "$SETTINGS_FILE"
+        log "Updated settings.json: bitcoin.default_data set to $user_input2"
+    fi
+
     confirm_input "Are these values correct?"
     if [ $? -eq 0 ]; then
         break
@@ -142,7 +150,8 @@ while true; do
 done
 
 # Create directory for the bitcoin.conf file if it doesn't exist
-conf_dir=$(dirname "$user_input1")
+log "bitcoin.conf will be created at: $conf_file"
+conf_dir=$(dirname "$conf_file")
 if [ ! -d "$conf_dir" ]; then
     sudo mkdir -p "$conf_dir"
     if [[ "$conf_dir" == "/etc/bitcoin" ]]; then
@@ -176,13 +185,13 @@ fi
 
 # Create or overwrite bitcoin.conf
 log "Writing bitcoin.conf with the following values:"
-log "  - Config location: $user_input1"
+log "  - Config location: $conf_file"
 log "  - Data directory: $user_input2"
 log "  - Prune value: $user_input3"
 log "  - DB Cache: $user_input4"
 log "  - RPC Auth: $user_input5"
 
-sudo bash -c "cat > $user_input1" << EOF
+sudo bash -c "cat > $conf_file" << EOF
 datadir=$user_input2
 upnp=0
 listen=1
@@ -213,34 +222,34 @@ rpcauth=$user_input5
 EOF
 
 # Set ownership
-chown "$username:$username" "$user_input1"
+chown "$username:$username" "$conf_file"
 
 # Set permissions to ensure bitcoind can read the file when run by systemd
 # chmod 600 (owner read-write only) is appropriate for config files with credentials
-chmod 600 "$user_input1"
+chmod 600 "$conf_file"
 log "Set permissions on bitcoin.conf to 600 (owner read-write only)"
 
 # Check if the operation was successful
 if [ $? -eq 0 ]; then
-    log_display "${GREEN}File 'bitcoin.conf' has been created at $user_input1 successfully.${NC}"
+    log_display "${GREEN}File 'bitcoin.conf' has been created at $conf_file successfully.${NC}"
 else
     log_display "${RED}An error occurred while creating the file.${NC}"
     exit 1
 fi
 
-# Check if default_conf exists
-if [ -f "$default_conf" ]; then
-    log_display "default_conf file found at $default_conf."
+# Check if user-selected conf exists
+if [ -f "$conf_file" ]; then
+    log_display "bitcoin.conf file found at $conf_file."
 else
-    log_display "${RED}Error: default_conf file not found at $default_conf.${NC}"
+    log_display "${RED}Error: bitcoin.conf file not found at $conf_file.${NC}"
     exit 1
 fi
 
-# Create an alias (symlink) from default_conf to user_input2
-if ln -sfn "$default_conf" "$user_input2"; then
-    log_display "${GREEN}Symlink created from $default_conf -> $user_input2.${NC}"
+# Create an alias (symlink) from conf_file to user_input2
+if ln -sfn "$conf_file" "$user_input2"; then
+    log_display "${GREEN}Symlink created from $conf_file -> $user_input2.${NC}"
 else
-    log_display "${RED}Error: Failed to create symlink from $default_conf to $user_input2.${NC}"
+    log_display "${RED}Error: Failed to create symlink from $conf_file to $user_input2.${NC}"
     exit 1
 fi
 

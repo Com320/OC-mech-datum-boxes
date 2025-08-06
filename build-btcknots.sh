@@ -150,17 +150,6 @@ mkdir -p "$src_dir"
 mkdir -p "$bin_dir"
 chown -R "$username:$username" "$bitcoin_dir"
 
-# Create system directories for Bitcoin configuration if they don't exist
-log "Creating system directories for Bitcoin..."
-sudo mkdir -p "/etc/bitcoin"
-sudo mkdir -p "/var/lib/bitcoind"
-log "Setting up permissions for system directories..."
-sudo chown -R root:"$username" "/etc/bitcoin"
-sudo chmod 750 "/etc/bitcoin"
-sudo chown -R "$username:$username" "/var/lib/bitcoind"
-sudo chmod 750 "/var/lib/bitcoind"
-log "System directories created with proper permissions"
-
 # Move into source-code directory
 log "Changing directory to $src_dir..."
 cd "$src_dir" || { log "Failed to change directory to $src_dir."; exit 1; }

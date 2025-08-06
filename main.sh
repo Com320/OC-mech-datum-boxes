@@ -3,9 +3,54 @@
 # It installs dependencies, builds Bitcoin Knots, and builds Datum Gateway.
 # Run this script from the project's root directory.
 
+
 # Source common utilities
 SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/utils.sh"
+
+# Dirty marker file path in the running user's home directory
+USER_HOME=$(eval echo ~$(id -un))
+DIRTY_MARKER="$USER_HOME/.datum_inst"
+
+# Check for dirty marker file before anything else
+if [ -f "$DIRTY_MARKER" ]; then
+  RUN_DATE=$(head -n 1 "$DIRTY_MARKER")
+  echo -e "${RED}WARNING: This script was previously run on $RUN_DATE and exited uncleanly. This can cause problems with the tools and services it installs.\nIt is strongly recommended to wipe and reinstall the operating system before continuing.${NC}"
+  read -p "Do you want to proceed anyway? (y/n): " confirm_dirty
+  if [[ "$confirm_dirty" != "y" ]]; then
+    echo "Exiting as requested."
+    exit 1
+  fi
+fi
+
+# Ensure jq is installed
+if ! command -v jq &> /dev/null; then
+  echo -e "${YELLOW}jq not found. Installing jq...${NC}"
+  apt-get update && apt-get install -y jq
+  if [ $? -ne 0 ]; then
+    echo "jq installation failed. Exiting."
+    exit 1
+  fi
+else
+  echo "jq is already installed."
+fi
+
+# Check if running as root, sudo, or neither
+if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+  echo -e "${RED}This script must be run as root directly, not with sudo.${NC}"
+  echo "To switch to root, run:"
+  echo "  sudo su -"
+  echo "Then run this script again from the root shell."
+  exit 1
+elif [ "$(id -u)" -eq 0 ]; then
+  echo -e "${GREEN}Running as root (not via sudo).${NC}"
+else
+  echo -e "${RED}This script must be run as root. Please switch to root using 'sudo su -' and run this script again.${NC}"
+  exit 1
+fi
+
+# Create dirty marker file with run date/time at the start of important operations
+echo "$(date '+%Y-%m-%d %H:%M:%S')" > "$DIRTY_MARKER"
 
 # Initialize logging
 init_logging "main"
@@ -117,6 +162,10 @@ else
 fi
 echo "All process logs are located in: $effective_logdir"
 echo "Review these logs for troubleshooting and details about each step."
+
+
+# Remove dirty marker file at the end
+rm -f "$DIRTY_MARKER"
 
 if [ $ERRORS -eq 0 ]; then
   echo -e "${GREEN}Process completed successfully with no errors.${NC}"
