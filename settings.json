@@ -45,6 +45,7 @@
         "sudo",
         "vim",
         "gnupg",
-        "jq"
+        "jq",
+        "passwdqc"
         ]
     }

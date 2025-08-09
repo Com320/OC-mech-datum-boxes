@@ -110,11 +110,26 @@ log_display "Using system locations by default for improved compatibility with s
 
 # Prompt the user for their inputs
 while true; do
-    user_input1=$(get_input "Enter location for bitcoin.conf" "$default_conf")
-    user_input2=$(get_input "Enter location for data" "$default_data")
-    user_input3=$(get_input "Enter value for 'prune'" "550")
-    user_input4=$(get_input "Enter value for 'dbcache'" "100")
+    user_input1=$(get_input "Enter location for the bitcoin.conf file" "$default_conf")
+    user_input2=$(get_input "Enter location for the 'data' directory" "$default_data")
+    
+    # Calculate pruneduringinit default (90% of available space in user_input2 or its parent if missing)
+    if [ -d "$user_input2" ]; then
+        df_target="$user_input2"
+    else
+        df_target="$(dirname "$user_input2")"
+    fi
+    available_mb=$(df -m "$df_target" 2>/dev/null | awk 'NR==2 {print $4}')
+    if [[ -z "$available_mb" ]]; then
+        default_pruneduringinit="550" # fallback default
+    else
+        default_pruneduringinit=$(awk "BEGIN {printf \"%d\", $available_mb * 0.9}")
+    fi
+    
+    user_input3=$(get_input "Enter a target blockchain size (prune) in megabytes (MB) to save disk space." "550")
+    user_input4=$(get_input "Enter the database cache size in megabytes (MB)" "450")
     user_input5=$(get_rpcauth_input "$default_rpcauth")
+    user_input6=$(get_input "Enter pruneduringinit value. This sets the maximum space (in MB) that can be used during initial sync before pruning. Default is 90% of available space in $user_input2." "$default_pruneduringinit")
     
     echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"
@@ -122,6 +137,7 @@ while true; do
     echo "Value for 'prune': $user_input3"
     echo "Value for 'dbcache': $user_input4"
     echo "Value for 'rpcauth': $user_input5"
+    echo "Value for 'pruneduringinit': $user_input6"
 
     # Always set conf_file using failsafe logic
     if [[ "$user_input1" == */bitcoin.conf ]]; then
@@ -153,32 +169,32 @@ done
 log "bitcoin.conf will be created at: $conf_file"
 conf_dir=$(dirname "$conf_file")
 if [ ! -d "$conf_dir" ]; then
-    sudo mkdir -p "$conf_dir"
+    mkdir -p "$conf_dir"
     if [[ "$conf_dir" == "/etc/bitcoin" ]]; then
-        # System directory should be root:username with stricter permissions
-        sudo chown -R root:"$username" "$conf_dir"
-        sudo chmod 750 "$conf_dir"
+        # System directory should be root:$username with stricter permissions
+        chown -R root:"$username" "$conf_dir"
+        chmod 750 "$conf_dir"
         log "Created system bitcoin config directory with root:$username ownership"
     else
         # User directory with standard permissions
-        sudo chown -R "$username:$username" "$conf_dir"
-        sudo chmod 700 "$conf_dir"
+        chown -R "$username:$username" "$conf_dir"
+        chmod 700 "$conf_dir"
         log "Created user bitcoin config directory with $username:$username ownership"
     fi
 fi
 
 # Create the data directory if it doesn't exist
 if [ ! -d "$user_input2" ]; then
-    sudo mkdir -p "$user_input2"
+    mkdir -p "$user_input2"
     if [[ "$user_input2" == "/var/lib/bitcoind" ]]; then
         # System data directory should be username:username
-        sudo chown -R "$username:$username" "$user_input2"
-        sudo chmod 750 "$user_input2"
+        chown -R "$username:$username" "$user_input2"
+        chmod 750 "$user_input2"
         log "Created system bitcoin data directory with $username:$username ownership"
     else
         # User data directory
-        sudo chown -R "$username:$username" "$user_input2"
-        sudo chmod 700 "$user_input2"
+        chown -R "$username:$username" "$user_input2"
+        chmod 700 "$user_input2"
         log "Created user bitcoin data directory with $username:$username ownership"
     fi
 fi
@@ -191,11 +207,9 @@ log "  - Prune value: $user_input3"
 log "  - DB Cache: $user_input4"
 log "  - RPC Auth: $user_input5"
 
-sudo bash -c "cat > $conf_file" << EOF
+cat > "$conf_file" << EOF
 datadir=$user_input2
-upnp=0
 listen=1
-noirc=0
 txindex=0
 daemon=0
 server=1
@@ -206,17 +220,17 @@ testnet=0
 rpcthreads=64
 rpcworkqueue=64
 logtimestamps=1
-logips=1
+logips=0
 blockprioritysize=0
 blockmaxsize=3985000
 blockmaxweight=3985000
 blocknotify=killall -USR1 datum_gateway
-maxconnections=40
 maxmempool=1000
 blockreconstructionextratxn=1000000
+blockreconstructionextratxnsize=100
 prune=$user_input3
+pruneduringinit=$user_input6
 maxorphantx=50000
-assumevalid=000000000000000000014b9196b45c6641432d600fc43ae891fce1cd25620500
 dbcache=$user_input4
 rpcauth=$user_input5
 EOF

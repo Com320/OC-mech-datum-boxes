@@ -25,9 +25,9 @@ fi
 
 log "Using home directory: $user_home"
 
-# Write the content to the service file with sudo
+# Write the content to the service file
 log "Creating Datum service file at /usr/lib/systemd/system/datum.service"
-sudo bash -c "cat > /usr/lib/systemd/system/datum.service" << EOF
+cat > /usr/lib/systemd/system/datum.service << EOF
 [Unit]
 Description=Datum Gateway Service
 After=network.target
@@ -53,21 +53,21 @@ if [ $? -eq 0 ]; then
     if [[ "$start_service" == "y" ]]; then
         log "User chose to enable and start the service"
         log "Running: systemctl daemon-reload"
-        sudo systemctl daemon-reload
+        systemctl daemon-reload
         log "Running: systemctl enable datum.service"
-        sudo systemctl enable datum.service
+        systemctl enable datum.service
         log "Running: systemctl start datum.service"
-        sudo systemctl start datum.service
+        systemctl start datum.service
         log_display "${GREEN}Service enabled and started.${NC}"
         
         # Check service status
         log "Checking service status..."
         echo "Checking service status..."
         # Capture service status to log file while also showing on screen
-        sudo systemctl status datum.service | tee -a "$LOG_FILE"
+        systemctl status datum.service | tee -a "$LOG_FILE"
     else
         log "User chose not to enable and start the service"
-        echo "You can manually start the service with: sudo systemctl start datum.service"
+        echo "You can manually start the service with: systemctl start datum.service"
     fi
 else
     log_display "${RED}An error occurred while creating or editing the file.${NC}"

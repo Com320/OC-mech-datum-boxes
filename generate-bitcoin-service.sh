@@ -12,7 +12,7 @@ cleanup() {
     log_display "${YELLOW}Script interrupted by user. Bitcoin service setup is complete.${NC}"
     log_display "${YELLOW}Note: Bitcoin is syncing the blockchain in the background.${NC}"
     log_display "${YELLOW}This process may take hours or days to complete.${NC}"
-    log_display "${GREEN}To check sync status: ${NC}sudo journalctl -u bitcoin_knots.service -f"
+    log_display "${GREEN}To check sync status: ${NC}journalctl -u bitcoin_knots.service -f"
     exit 0
 }
 
@@ -53,7 +53,7 @@ if [ -f "$BITCOIN_BINARY" ]; then
     log "Binary permissions: $binary_permissions"
     
     # Ensure the binary is executable by all users
-    sudo chmod 755 "$BITCOIN_BINARY"
+    chmod 755 "$BITCOIN_BINARY"
     log "Updated binary permissions to 755"
 else
     log_display "${RED}Error: Bitcoin binary not found at $BITCOIN_BINARY${NC}"
@@ -102,7 +102,7 @@ if [ ! -d "$conf_dir" ]; then
     log_display "${RED}Config directory $conf_dir does not exist!${NC}"
     read -p "Do you want to create $conf_dir? (y/n): " create_conf_dir
     if [[ "$create_conf_dir" == "y" ]]; then
-        sudo mkdir -p "$conf_dir"
+    mkdir -p "$conf_dir"
         log_display "${YELLOW}Created config directory $conf_dir.${NC}"
     else
         log_display "${RED}Cannot continue without config directory. Exiting.${NC}"
@@ -115,7 +115,7 @@ if [ ! -d "$default_data" ]; then
     log_display "${RED}Data directory $default_data does not exist!${NC}"
     read -p "Do you want to create $default_data? (y/n): " create_data_dir
     if [[ "$create_data_dir" == "y" ]]; then
-        sudo mkdir -p "$default_data"
+    mkdir -p "$default_data"
         log_display "${YELLOW}Created data directory $default_data.${NC}"
     else
         log_display "${RED}Cannot continue without data directory. Exiting.${NC}"
@@ -131,8 +131,8 @@ else
     log_display "${RED}User $username cannot read $default_conf!${NC}"
     read -p "Do you want to fix permissions on $default_conf so $username can read it? (y/n): " fix_conf_perm
     if [[ "$fix_conf_perm" == "y" ]]; then
-        sudo chown "root:$username" "$default_conf"
-        sudo chmod 600 "$default_conf"
+    chown "root:$username" "$default_conf"
+    chmod 600 "$default_conf"
         log_display "${YELLOW}Permissions updated for $default_conf.${NC}"
     fi
 fi
@@ -147,8 +147,8 @@ else
     log_display "${RED}User $username cannot write to $default_data!${NC}"
     read -p "Do you want to fix permissions on $default_data so $username can write to it? (y/n): " fix_data_perm
     if [[ "$fix_data_perm" == "y" ]]; then
-        sudo chown -R "$username:$username" "$default_data"
-        sudo chmod 700 "$default_data"
+    chown -R "$username:$username" "$default_data"
+    chmod 700 "$default_data"
         log_display "${YELLOW}Permissions updated for $default_data.${NC}"
     fi
 fi
@@ -174,9 +174,9 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
     log "Continuing with fallback service definition..."
     echo "Continuing with fallback service definition..."
     
-    # Write the content to the service file with sudo (using fallback simple template)
+    # Write the content to the service file (running as root; no sudo needed) using fallback simple template
     log "Creating fallback service file at /usr/lib/systemd/system/bitcoin_knots.service"
-    sudo bash -c "cat > /usr/lib/systemd/system/bitcoin_knots.service" << EOF
+    cat > /usr/lib/systemd/system/bitcoin_knots.service << EOF
 [Unit]
 Description=Bitcoin Knots Service
 After=network.target
@@ -260,8 +260,8 @@ else
     
     # Copy the final service file to systemd directory
     log "Copying service file to /usr/lib/systemd/system/bitcoin_knots.service"
-    sudo cp "$TMP_SERVICE_FILE" "/usr/lib/systemd/system/bitcoin_knots.service"
-    sudo chmod 644 "/usr/lib/systemd/system/bitcoin_knots.service"
+    cp "$TMP_SERVICE_FILE" "/usr/lib/systemd/system/bitcoin_knots.service"
+    chmod 644 "/usr/lib/systemd/system/bitcoin_knots.service"
     rm "$TMP_SERVICE_FILE"
     log "Service file successfully copied and permissions set"
 fi
@@ -277,15 +277,15 @@ if [ $? -eq 0 ]; then
     if [[ "$start_service" == "y" ]]; then
         log "User chose to enable and start the service"
         log "Running: systemctl daemon-reload"
-        sudo systemctl daemon-reload
+    systemctl daemon-reload
         log "Running: systemctl enable bitcoin_knots.service"
-        sudo systemctl enable bitcoin_knots.service
+    systemctl enable bitcoin_knots.service
 
         log_display "${YELLOW}Starting Bitcoin service...${NC}"
         log "Running: systemctl start bitcoin_knots.service"
 
         # Start the service
-        sudo systemctl start bitcoin_knots.service
+    systemctl start bitcoin_knots.service
 
         # Wait a brief moment for the service to register
         sleep 1
@@ -298,11 +298,11 @@ if [ $? -eq 0 ]; then
         log_display "${YELLOW}Important: Bitcoin will now synchronize the blockchain in the background.${NC}"
         log_display "${YELLOW}This process may take hours or days depending on your hardware and internet connection.${NC}"
         log_display "${GREEN}You can proceed with the rest of the installation while synchronization continues.${NC}"
-        log_display "${YELLOW}To check sync status later: ${GREEN}sudo journalctl -u bitcoin_knots.service -f${NC}"
+    log_display "${YELLOW}To check sync status later: ${GREEN}journalctl -u bitcoin_knots.service -f${NC}"
         log_display ""
     else
         log "User chose not to enable and start the service"
-        echo "You can manually start the service with: sudo systemctl start bitcoin_knots.service"
+    echo "You can manually start the service with: systemctl start bitcoin_knots.service"
     fi
 else
     log_display "${RED}An error occurred while creating or editing the service file.${NC}"
@@ -313,7 +313,7 @@ fi
 if [ $? -ne 0 ]; then
     log_display "${RED}Service failed to start. Checking logs...${NC}"
     echo "Last 20 lines from journalctl:"
-    sudo journalctl -u bitcoin_knots.service -n 20 --no-pager | tee -a "$LOG_FILE"
+    journalctl -u bitcoin_knots.service -n 20 --no-pager | tee -a "$LOG_FILE"
     
     log_display "${YELLOW}Trying to debug the issue...${NC}"
     log_display "Testing binary execution directly:"
@@ -343,15 +343,15 @@ if [ $? -ne 0 ]; then
             ls -Z "$conf_path" 2>&1 | tee -a "$LOG_FILE"
             
             log_display "${YELLOW}Attempting to fix SELinux context:${NC}"
-            sudo chcon -t bitcoin_exec_t "$BITCOIN_BINARY" 2>&1 | tee -a "$LOG_FILE"
-            sudo chcon -t user_home_t "$conf_path" 2>&1 | tee -a "$LOG_FILE"
+            chcon -t bitcoin_exec_t "$BITCOIN_BINARY" 2>&1 | tee -a "$LOG_FILE"
+            chcon -t user_home_t "$conf_path" 2>&1 | tee -a "$LOG_FILE"
         fi
     fi
     
     # Check for AppArmor
     if command -v aa-status &> /dev/null; then
         log_display "AppArmor status:"
-        sudo aa-status | grep -i bitcoin | tee -a "$LOG_FILE"
+    aa-status | grep -i bitcoin | tee -a "$LOG_FILE"
     fi
     
     # Test if bitcoin user can directly read the file
@@ -365,18 +365,18 @@ if [ $? -ne 0 ]; then
         # Try an alternative approach - copy config to temp location with proper permissions
         log_display "${YELLOW}Attempting alternative approach - creating a copy of the config file:${NC}"
         tmp_conf="/tmp/bitcoin.conf"
-        sudo cp "$conf_path" "$tmp_conf"
-        sudo chown "$username:$username" "$tmp_conf"
-        sudo chmod 600 "$tmp_conf"
+        cp "$conf_path" "$tmp_conf"
+        chown "$username:$username" "$tmp_conf"
+        chmod 600 "$tmp_conf"
         
         # Test direct execution with the temp config
         log_display "Testing bitcoind with temp config file:"
         sudo -u "$username" "$BITCOIN_BINARY" -conf="$tmp_conf" -daemon=0 -printtoconsole=0 -rpcpassword=test -rpcuser=test -server=0 -listenonion=0 -noonion=1 -proxy= -listen=0 -disablewallet=1 2>&1 | head -n 10 | tee -a "$LOG_FILE"
         
         log_display "${YELLOW}Consider recreating the .bitcoin directory with proper permissions:${NC}"
-        log_display "sudo mkdir -p /home/bitcoin/.bitcoin/data"
-        log_display "sudo chown -R bitcoin:bitcoin /home/bitcoin/.bitcoin"
-        log_display "sudo chmod -R 700 /home/bitcoin/.bitcoin"
+        log_display "mkdir -p /home/bitcoin/.bitcoin/data"
+        log_display "chown -R bitcoin:bitcoin /home/bitcoin/.bitcoin"
+        log_display "chmod -R 700 /home/bitcoin/.bitcoin"
     fi
     
     log_display "${YELLOW}Checking binary library dependencies:${NC}"

@@ -134,34 +134,34 @@ case $fix_option in
         
         # Backup existing config if it exists
         if [ -f "$conf_path" ]; then
-            sudo cp "$conf_path" "/tmp/bitcoin.conf.bak"
+            cp "$conf_path" "/tmp/bitcoin.conf.bak"
             log_display "Config backed up to /tmp/bitcoin.conf.bak"
         fi
         
         # Recreate directory with proper permissions
-        sudo rm -rf "$conf_dir"
-        sudo mkdir -p "$conf_dir"
-        sudo mkdir -p "$data_dir"
-        sudo chown -R "$username:$username" "$conf_dir"
-        sudo chmod -R 700 "$conf_dir"
+        rm -rf "$conf_dir"
+        mkdir -p "$conf_dir"
+        mkdir -p "$data_dir"
+        chown -R "$username:$username" "$conf_dir"
+        chmod -R 700 "$conf_dir"
         
         # Restore config if backup exists
         if [ -f "/tmp/bitcoin.conf.bak" ]; then
-            sudo cp "/tmp/bitcoin.conf.bak" "$conf_path"
-            sudo chown "$username:$username" "$conf_path"
-            sudo chmod 600 "$conf_path"
+            cp "/tmp/bitcoin.conf.bak" "$conf_path"
+            chown "$username:$username" "$conf_path"
+            chmod 600 "$conf_path"
             log_display "Config restored from backup."
         else
             # Create minimal config
-            sudo bash -c "cat > $conf_path" << EOF
+            cat > $conf_path << EOF
 datadir=$data_dir
 server=1
 rpcallowip=127.0.0.1
 rpcuser=bitcoin
 rpcpassword=bitcoin
 EOF
-            sudo chown "$username:$username" "$conf_path"
-            sudo chmod 600 "$conf_path"
+            chown "$username:$username" "$conf_path"
+            chmod 600 "$conf_path"
             log_display "Created new minimal config file."
         fi
         
@@ -173,15 +173,15 @@ EOF
         log_display "Setting up config in /etc/bitcoin..."
         
         # Create system directory
-        sudo mkdir -p "/etc/bitcoin"
-        sudo mkdir -p "/var/lib/bitcoind"
+        mkdir -p "/etc/bitcoin"
+        mkdir -p "/var/lib/bitcoind"
         
         # Copy config
         if [ -f "$conf_path" ]; then
-            sudo cp "$conf_path" "/etc/bitcoin/bitcoin.conf"
+            cp "$conf_path" "/etc/bitcoin/bitcoin.conf"
         else
             # Create minimal config
-            sudo bash -c "cat > /etc/bitcoin/bitcoin.conf" << EOF
+            cat > /etc/bitcoin/bitcoin.conf << EOF
 datadir=/var/lib/bitcoind
 server=1
 rpcallowip=127.0.0.1
@@ -191,28 +191,28 @@ EOF
         fi
         
         # Update datadir in config to use /var/lib/bitcoind instead of $data_dir
-        sudo sed -i "s|datadir=.*|datadir=/var/lib/bitcoind|" "/etc/bitcoin/bitcoin.conf"
+        sed -i "s|datadir=.*|datadir=/var/lib/bitcoind|" "/etc/bitcoin/bitcoin.conf"
         
         # Copy existing data if needed
         if [ -d "$data_dir" ] && [ "$(ls -A "$data_dir" 2>/dev/null)" ]; then
             log_display "Copying existing blockchain data to /var/lib/bitcoind (this may take a while)..."
-            sudo cp -r "$data_dir"/* "/var/lib/bitcoind/" 2>/dev/null || true
+            cp -r "$data_dir"/* "/var/lib/bitcoind/" 2>/dev/null || true
         fi
         
         # Set permissions
-        sudo chown -R root:$username "/etc/bitcoin"
-        sudo chmod 750 "/etc/bitcoin"
-        sudo chmod 640 "/etc/bitcoin/bitcoin.conf"
+        chown -R root:$username "/etc/bitcoin"
+        chmod 750 "/etc/bitcoin"
+        chmod 640 "/etc/bitcoin/bitcoin.conf"
         
         # Set permissions for data directory
-        sudo chown -R "$username:$username" "/var/lib/bitcoind"
-        sudo chmod -R 750 "/var/lib/bitcoind"
+        chown -R "$username:$username" "/var/lib/bitcoind"
+        chmod -R 750 "/var/lib/bitcoind"
         
         # Update service to use this config
         if [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
             log_display "Updating service to use system config location..."
-            sudo sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind|" "/etc/systemd/system/bitcoin_knots.service"
-            sudo systemctl daemon-reload
+            sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind|" "/etc/systemd/system/bitcoin_knots.service"
+            systemctl daemon-reload
         fi
         
         log_display "${GREEN}System config setup complete.${NC}"
@@ -223,16 +223,16 @@ EOF
         log_display "Fixing permissions of existing files..."
         
         # Ensure home directory has correct permissions
-        sudo chmod 750 "$user_home"
+        chmod 750 "$user_home"
         
         # Fix .bitcoin directory permissions
-        sudo chown -R "$username:$username" "$conf_dir"
-        sudo chmod -R 700 "$conf_dir"
+        chown -R "$username:$username" "$conf_dir"
+        chmod -R 700 "$conf_dir"
         
         # Fix config file permissions specifically
         if [ -f "$conf_path" ]; then
-            sudo chown "$username:$username" "$conf_path"
-            sudo chmod 600 "$conf_path"
+            chown "$username:$username" "$conf_path"
+            chmod 600 "$conf_path"
         fi
         
         log_display "${GREEN}Permissions fixed.${NC}"
@@ -251,8 +251,8 @@ esac
 if [ -f "/etc/systemd/system/bitcoin_knots.service" ] && [ "$fix_option" != "4" ]; then
     log_display "\n${GREEN}===== Restarting Service =====${NC}"
     log_display "Attempting to restart Bitcoin service..."
-    sudo systemctl daemon-reload
-    sudo systemctl restart bitcoin_knots.service
+    systemctl daemon-reload
+    systemctl restart bitcoin_knots.service
     sleep 3
     
     # Check if service started successfully

@@ -75,6 +75,31 @@ else
 fi
 
 # Function to get user input with default value
+
+# Function to generate a random password using pwqgen
+generate_password() {
+    if command -v pwqgen &> /dev/null; then
+        pw=$(pwqgen -1 16 2>/dev/null)
+        if [ -n "$pw" ]; then
+            echo "$pw"
+            return
+        fi
+    fi
+    if command -v openssl &> /dev/null; then
+        pw=$(openssl rand -base64 16 2>/dev/null)
+        if [ -n "$pw" ]; then
+            echo "$pw"
+            return
+        fi
+    fi
+    # Fallback: use /dev/urandom and tr if all else fails
+    pw=$(head -c 12 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+    if [ -z "$pw" ]; then
+        pw="datumdefaultpass"
+    fi
+    echo "$pw"
+}
+
 get_input() {
     read -p "$1 (default: $2): " input
     # Log the input for reference
@@ -133,7 +158,7 @@ while true; do
   },
   "api": {
     "listen_port": $(get_input "Enter API listen_port" 7152),
-    "admin_password": "$(get_input "Enter API admin password" "admin")",
+    "admin_password": "$(get_input "Enter API admin password" "$(generate_password)")",
     "modify_conf": $(get_input "Allow API to modify config? (true/false)" false)
   },
   "logger": {
@@ -142,8 +167,6 @@ while true; do
     "log_level_file": $(get_input "Enter log level (0-5)" 2)
   },
   "datum": {
-    "pool_host": "$(get_input "Enter pool host" "datum-beta1.mine.ocean.xyz")",
-    "pool_port": $(get_input "Enter pool port" 28915),
     "pool_pass_workers": $(get_input "Pass workers to pool? (true/false)" true),
     "pool_pass_full_users": $(get_input "Pass stratum miner usernames as raw usernames to the pool? (true/false)" true),
     "pooled_mining_only": $(get_input "Pooled mining only? (true/false)" true)
@@ -187,7 +210,7 @@ if [ ! -d "$log_dir" ]; then
 fi
 
 # Write the JSON content to the file
-echo "$json_content" | sudo tee "$filename" > /dev/null
+echo "$json_content" > "$filename"
 
 # Set proper ownership
 chown "$username:$username" "$filename"
