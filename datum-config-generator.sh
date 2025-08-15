@@ -79,22 +79,35 @@ fi
 # Function to generate a random password using pwqgen
 generate_password() {
     if command -v pwqgen &> /dev/null; then
-        pw=$(pwqgen -1 16 2>/dev/null)
+        pw=$(pwqgen random=45 2>/dev/null)
         if [ -n "$pw" ]; then
+            log "Password generated using pwqgen."
             echo "$pw"
             return
+        else
+            log "pwqgen found but did not return a password."
         fi
+    else
+        log "pwqgen not found."
     fi
     if command -v openssl &> /dev/null; then
         pw=$(openssl rand -base64 16 2>/dev/null)
         if [ -n "$pw" ]; then
+            log "Password generated using openssl."
             echo "$pw"
             return
+        else
+            log "openssl found but did not return a password."
         fi
+    else
+        log "openssl not found."
     fi
     # Fallback: use /dev/urandom and tr if all else fails
     pw=$(head -c 12 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
-    if [ -z "$pw" ]; then
+    if [ -n "$pw" ]; then
+        log "Password generated using /dev/urandom fallback."
+    else
+        log "All password generation methods failed. Using hardcoded fallback password."
         pw="datumdefaultpass"
     fi
     echo "$pw"

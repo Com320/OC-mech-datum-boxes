@@ -214,6 +214,27 @@ else
     exit 1
 fi
 
+# Read run_tests setting (default to true if not found)
+run_tests=$(read_json_value "build_options.run_tests" "$SETTINGS_FILE")
+if [ -z "$run_tests" ]; then
+    log_display "${YELLOW}Could not determine run_tests from settings.json. Using default 'true'.${NC}"
+    run_tests=true
+    log "Using default run_tests: $run_tests"
+fi
+
+# Conditionally run make check/tests
+if [ "$run_tests" = true ]; then
+    log_display "Running tests..."
+    if su - "$username" -c "cd $bitcoin_src && make check" 2>&1 | tee -a "$LOG_FILE"; then
+        log_display "${GREEN}Tests completed successfully.${NC}"
+    else
+        log_display "${RED}Error: Tests failed. See log for details.${NC}"
+        exit 1
+    fi
+else
+    log_display "${YELLOW}Skipping tests as run_tests is set to false in settings.json.${NC}"
+fi
+
 # The binary is located at a known path after build
 built_binary="$bitcoin_src/src/bitcoind"
 log "Checking binary at known path: $built_binary"
