@@ -103,7 +103,7 @@ generate_password() {
         log "openssl not found."
     fi
     # Fallback: use /dev/urandom and tr if all else fails
-    pw=$(head -c 12 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+    pw=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c16)
     if [ -n "$pw" ]; then
         log "Password generated using /dev/urandom fallback."
     else

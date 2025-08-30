@@ -37,15 +37,17 @@ fi
 
 # Check if running as root, sudo, or neither
 if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-  echo -e "${RED}This script must be run as root directly, not with sudo.${NC}"
-  echo "To switch to root, run:"
-  echo "  sudo su -"
+  echo -e "${RED}This script must be run as root directly, not with 'sudo <script>'.${NC}"
+  echo "To switch to root, run one of the following:"
+  echo "  sudo -i"
+  echo "  su -"
+  echo "Or log in as root directly if enabled."
   echo "Then run this script again from the root shell."
   exit 1
 elif [ "$(id -u)" -eq 0 ]; then
   echo -e "${GREEN}Running as root (not via sudo).${NC}"
 else
-  echo -e "${RED}This script must be run as root. Please switch to root using 'sudo su -' and run this script again.${NC}"
+  echo -e "${RED}This script must be run as root. Please switch to root using 'sudo -i', 'su -', or log in as root directly.${NC}"
   exit 1
 fi
 
@@ -72,12 +74,6 @@ track_error() {
   log_display "${GREEN}${step} completed successfully.${NC}"
   return 0
 }
-
-# Ensure the script is run as root/sudo
-if [ "$(id -u)" -ne 0 ]; then
-  log_display "${RED}This script must be run as root or with sudo privileges.${NC}"
-  exit 1
-fi
 
 # Set up the user from settings.json
 log_display "Setting up user..."

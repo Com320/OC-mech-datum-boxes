@@ -18,12 +18,59 @@ fi
 # Read user configuration from settings.json
 username=$(read_json_value "user.username" "$SETTINGS_FILE")
 
+# Function to validate username
+validate_username() {
+    local username=$1
+    
+    # Check if empty
+    if [ -z "$username" ]; then
+        return 1
+    fi
+    
+    # Check length (max 32 characters)
+    if [ ${#username} -gt 32 ]; then
+        return 1
+    fi
+    
+    # Check if starts with number or hyphen
+    if [[ "$username" =~ ^[0-9-] ]]; then
+        return 1
+    fi
+    
+    # Check for valid characters only (lowercase letters, numbers, hyphens, underscores)
+    if [[ ! "$username" =~ ^[a-z0-9_-]+$ ]]; then
+        return 1
+    fi
+    
+    # Check for reserved names
+    local reserved_names=("root" "admin" "administrator" "system" "guest" "nobody" "www-data" "mysql" "postgres" "daemon" "bin" "sys" "sync" "games" "man" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "systemd-timesync" "messagebus" "syslog" "uuidd" "_apt" "tss" "landscape" "pollinate" "sshd" "bitcoin" "datum")
+    for reserved in "${reserved_names[@]}"; do
+        if [ "$username" = "$reserved" ]; then
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
 if [ -z "$username" ]; then
     log_display "${RED}Could not determine username from settings.json.${NC}"
     # Prompt for username if not found in settings
     while true; do
         read -p "Enter username to create: " username
         log_display "You entered: $username"
+        
+        # Validate username
+        if ! validate_username "$username"; then
+            log_display "${RED}This is not a valid username. Usernames must:${NC}"
+            log_display "${RED}- Be 1-32 characters long${NC}"
+            log_display "${RED}- Start with a letter or underscore${NC}"
+            log_display "${RED}- Contain only lowercase letters, numbers, hyphens, and underscores${NC}"
+            log_display "${RED}- Not be a reserved system name${NC}"
+            log_display "${YELLOW}Please try again.${NC}"
+            continue
+        fi
+        
         read -p "Is this correct? (y/n): " confirm
         if [[ "$confirm" == "y" ]]; then
             log "User confirmed username: $username"
@@ -44,6 +91,18 @@ else
         while true; do
             read -p "Enter username to create: " new_username
             log_display "You entered: $new_username"
+            
+            # Validate username
+            if ! validate_username "$new_username"; then
+                log_display "${RED}This is not a valid username. Usernames must:${NC}"
+                log_display "${RED}- Be 1-32 characters long${NC}"
+                log_display "${RED}- Start with a letter or underscore${NC}"
+                log_display "${RED}- Contain only lowercase letters, numbers, hyphens, and underscores${NC}"
+                log_display "${RED}- Not be a reserved system name${NC}"
+                log_display "${YELLOW}Please try again.${NC}"
+                continue
+            fi
+            
             read -p "Is this correct? (y/n): " confirm
             if [[ "$confirm" == "y" ]]; then
                 username=$new_username
