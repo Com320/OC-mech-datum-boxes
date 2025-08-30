@@ -75,6 +75,9 @@ track_error() {
   return 0
 }
 
+# Display welcome message
+source "$SCRIPT_DIR/welcomemsg.sh"
+
 # Set up the user from settings.json
 log_display "Setting up user..."
 "$SCRIPT_DIR/user-setup.sh"
