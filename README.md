@@ -25,6 +25,11 @@ This project provides a collection of shell scripts that automate the process of
 - `generate-bitcoin-service.sh` - Creates a systemd service for Bitcoin
 - `generate-datum-service.sh` - Creates a systemd service for DATUM Gateway
 - `utils.sh` - Common utility functions used across all scripts
+- `verify-git-tag.sh` - Verifies GPG signatures on Git tags (used by the Bitcoin build)
+- `welcomemsg.sh` - Displays the informational welcome message used by `main.sh`
+- `tools.sh` - Miscellaneous helper tools and small utilities
+- `troubleshoot-bitcoin-conf.sh` - Helpers to inspect and debug `bitcoin.conf`
+- `legacy/datum-all.sh` - Legacy convenience/collector script (kept for reference)
 
 ## Architecture
 
@@ -44,10 +49,16 @@ This architecture makes the codebase easier to maintain and extend.
 
 **Important:** The repository must be cloned to the path specified by `scripts_path` in `settings.json` (default: `/root/OC-mech-datum-boxes`). If you change this value in `settings.json`, you must also clone the repository to the same path, or update both to match. If the paths do not match, some scripts and configuration steps will fail.
 
-1. **Clone this repository to `/root/OC-mech-datum-boxes`:**
+1. **Clone this repository (anywhere you like):**
+
+   You may clone the repository into any path. If you do not use the default path, update `scripts_path` in `settings.json` to match your clone location.
 
    ```bash
+   # Example (default path):
    git clone https://github.com/Com320/OC-mech-datum-boxes.git /root/OC-mech-datum-boxes
+
+   # Or clone into your home directory and update settings.json accordingly:
+   git clone https://github.com/Com320/OC-mech-datum-boxes.git ~/OC-mech-datum-boxes
    ```
 
 2. **Change into the repository directory:**
@@ -64,9 +75,15 @@ This architecture makes the codebase easier to maintain and extend.
    chmod +x *.sh
    ```
 
-5. **Run the `main.sh` script as root (NOT SUDO):**
+5. **Run the `main.sh` script from an interactive root shell (NOT via `sudo <script>`):**
+
+   The `main.sh` script intentionally rejects being invoked with `sudo <script>` and must be run from a root login or interactive root shell. This avoids permission and ownership problems when creating the unprivileged user and copying files.
+
+   Example:
 
    ```bash
+   sudo -i
+   cd /path/to/OC-mech-datum-boxes
    ./main.sh
    ```
 
@@ -76,6 +93,8 @@ This architecture makes the codebase easier to maintain and extend.
 - Root privileges (not sudo)
 - Internet connection for downloading dependencies and source code
 - Sufficient disk space for the Bitcoin blockchain
+
+Note: `jq` and `gnupg` are required by the scripts: `jq` is used by `main.sh` and `utils.sh` for JSON parsing, and `gnupg` (gpg) is required if `build_options.verify_signatures` is enabled.
 
 ## Configuration
 
@@ -89,6 +108,7 @@ The `settings.json` file contains key configuration parameters:
    - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
    - `verify_signatures`: Whether to verify Git tag signatures for Bitcoin Knots (default: true)
    - `key_fingerprint`: PGP key fingerprint used to verify signatures (default: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A)
+   - `run_tests`: Whether to run `make check` / unit tests during the Bitcoin Knots build (default: true)
 - DATUM options:
    - `coinbase_tag_primary`: Primary coinbase tag (default: DATUM)
    - `coinbase_tag_secondary`: Secondary coinbase tag (default: empty)
@@ -105,13 +125,17 @@ The build process includes security measures to ensure the integrity of the Bitc
 
 These features are enabled by default but can be disabled in the settings.json file if needed.
 
+Implementation note: the verification helper `verify-git-tag.sh` is invoked as the unprivileged user during the build process. The build scripts copy the verification helper and a temporary settings file into the target user's home and run it as that user so GPG verification occurs in the user's context. If you want to skip verification, set `build_options.verify_signatures` to `false` in `settings.json` (not recommended for production systems).
+
 ## Important Note
 
 Please pay attention to the values generated and refrain from blindly using the settings found here. Always review the generated configurations to ensure they meet your specific requirements and security needs.
 
 ## Credits
 
-These scripts are based on the work of [Bitcoin Mechanic](https://github.com/bitcoinmechanic). This version adds an automation layer ontop of the entire workflow process to create a streamlined, repeatable setup experience. Many thanks to Bitcoin Mechanic for his contributions to the Bitcoin community.
+These scripts are based on the work of [Bitcoin Mechanic](https://github.com/bitcoinmechanic). This version adds an automation layer on top of the entire workflow process to create a streamlined, repeatable setup experience. Many thanks to Bitcoin Mechanic for his contributions to the Bitcoin community.
+
+Logs: `logpath` in `settings.json` controls where logs are saved. When `logpath` is a relative path it is resolved relative to `scripts_path` when run as root (for example, the default resolves to `/root/OC-mech-datum-boxes/datum_instlogs`). At the end of `main.sh`, the script will also attempt to copy user-side logs from the unprivileged user's home directory into `$scripts_path/$logpath/from_<user>` for easier collection.
 
 ---
 
