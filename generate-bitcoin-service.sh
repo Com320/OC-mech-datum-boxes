@@ -100,8 +100,7 @@ fi
 conf_dir=$(dirname "$default_conf")
 if [ ! -d "$conf_dir" ]; then
     log_display "${RED}Config directory $conf_dir does not exist!${NC}"
-    read -p "Do you want to create $conf_dir? (y/n): " create_conf_dir
-    if [[ "$create_conf_dir" == "y" ]]; then
+    if confirm_prompt "Do you want to create $conf_dir? (y/n): "; then
     mkdir -p "$conf_dir"
         log_display "${YELLOW}Created config directory $conf_dir.${NC}"
     else
@@ -113,8 +112,7 @@ fi
 # Check and offer to create data directory if missing
 if [ ! -d "$default_data" ]; then
     log_display "${RED}Data directory $default_data does not exist!${NC}"
-    read -p "Do you want to create $default_data? (y/n): " create_data_dir
-    if [[ "$create_data_dir" == "y" ]]; then
+    if confirm_prompt "Do you want to create $default_data? (y/n): "; then
     mkdir -p "$default_data"
         log_display "${YELLOW}Created data directory $default_data.${NC}"
     else
@@ -129,8 +127,7 @@ if sudo -u "$username" cat "$default_conf" > /dev/null 2>&1; then
     log_display "${GREEN}User $username can read $default_conf.${NC}"
 else
     log_display "${RED}User $username cannot read $default_conf!${NC}"
-    read -p "Do you want to fix permissions on $default_conf so $username can read it? (y/n): " fix_conf_perm
-    if [[ "$fix_conf_perm" == "y" ]]; then
+    if confirm_prompt "Do you want to fix permissions on $default_conf so $username can read it? (y/n): "; then
     chown "root:$username" "$default_conf"
     chmod 600 "$default_conf"
         log_display "${YELLOW}Permissions updated for $default_conf.${NC}"
@@ -145,8 +142,7 @@ if sudo -u "$username" touch "$testfile" 2>/dev/null; then
     sudo -u "$username" rm -f "$testfile"
 else
     log_display "${RED}User $username cannot write to $default_data!${NC}"
-    read -p "Do you want to fix permissions on $default_data so $username can write to it? (y/n): " fix_data_perm
-    if [[ "$fix_data_perm" == "y" ]]; then
+    if confirm_prompt "Do you want to fix permissions on $default_data so $username can write to it? (y/n): "; then
     chown -R "$username:$username" "$default_data"
     chmod 700 "$default_data"
         log_display "${YELLOW}Permissions updated for $default_data.${NC}"
@@ -273,8 +269,7 @@ if [ $? -eq 0 ]; then
     echo "Service configuration saved to: /usr/lib/systemd/system/bitcoin_knots.service"
 
     # Enable and start the service if requested
-    read -p "Do you want to enable and start the service now? (y/n): " start_service
-    if [[ "$start_service" == "y" ]]; then
+    if confirm_prompt "Do you want to enable and start the service now? (y/n): "; then
         log "User chose to enable and start the service"
         log "Running: systemctl daemon-reload"
     systemctl daemon-reload

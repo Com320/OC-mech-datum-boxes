@@ -123,8 +123,7 @@ get_input() {
 # Function to confirm user input
 confirm_input() {
     echo "$1"
-    read -p "Is this correct? (y/n): " confirm
-    if [[ "$confirm" != "y" ]]; then
+    if ! confirm_prompt "Is this correct? (y/n): "; then
         log "User chose to edit the configuration"
         return 1
     fi

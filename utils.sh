@@ -119,6 +119,46 @@ read_json_array() {
 }
 export -f read_json_array
 
+# Prompt the user for a yes/no confirmation and normalize acceptable answers.
+# Usage: confirm_prompt "Prompt message" [default]
+# Returns 0 for yes, 1 for no.
+confirm_prompt() {
+    local prompt="${1:-Are you sure? (y/n): }"
+    local default="${2:-}"
+    local reply
+
+    while true; do
+        # If default is provided and user just presses enter, use it
+        if [ -n "$default" ]; then
+            read -p "$prompt" reply
+            if [ -z "$reply" ]; then
+                reply="$default"
+            fi
+        else
+            read -p "$prompt" reply
+        fi
+
+        # Trim whitespace
+        reply="$(echo -n "$reply" | xargs)"
+
+        # Lowercase for comparison
+        local lreply="$(echo "$reply" | tr '[:upper:]' '[:lower:]')"
+
+        case "$lreply" in
+            y|yes)
+                return 0
+                ;;
+            n|no)
+                return 1
+                ;;
+            *)
+                echo -e "${YELLOW}Please answer 'y'/'yes' or 'n'/'no'.${NC}"
+                ;;
+        esac
+    done
+}
+export -f confirm_prompt
+
 # Initialize logging
 # This function sets up logging for a script and must be called before any logging occurs
 # Usage: init_logging "script_name"
@@ -221,9 +261,7 @@ get_username() {
             read user_input
             user_input=$(echo "$user_input" | xargs)
             log "User entered: $user_input"
-            printf "Is this correct? (y/n): " >&2
-            read confirm
-            if [ "$confirm" = "y" ]; then
+            if confirm_prompt "Is this correct? (y/n): "; then
                 username="$user_input"
                 update_json_value "user.username" "$username" "$SETTINGS_FILE"
                 log "Updated settings.json with new username: $username"
@@ -236,18 +274,14 @@ get_username() {
     else
         log "Found username in settings.json: $username"
         printf "Using username from settings.json: $username\n" >&2
-        printf "Is this correct? (y/n): " >&2
-        read confirm
-        if [ "$confirm" != "y" ]; then
+        if ! confirm_prompt "Is this correct? (y/n): "; then
             log "User rejected the username from settings"
             while true; do
                 printf "Enter the username: " >&2
                 read user_input
                 user_input="$(echo "$user_input" | xargs)"
                 log "User entered: $user_input"
-                printf "Is this correct? (y/n): " >&2
-                read confirm
-                if [ "$confirm" = "y" ]; then
+                if confirm_prompt "Is this correct? (y/n): "; then
                     username="$user_input"
                     update_json_value "user.username" "$username" "$SETTINGS_FILE"
                     log "Updated settings.json with new username: $username"

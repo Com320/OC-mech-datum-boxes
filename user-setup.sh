@@ -71,8 +71,7 @@ if [ -z "$username" ]; then
             continue
         fi
         
-        read -p "Is this correct? (y/n): " confirm
-        if [[ "$confirm" == "y" ]]; then
+        if confirm_prompt "Is this correct? (y/n): "; then
             log "User confirmed username: $username"
             # Update the settings file with the new username
             update_json_value "user.username" "$username" "$SETTINGS_FILE"
@@ -84,8 +83,7 @@ if [ -z "$username" ]; then
 else
     # Confirm the username from settings
     log_display "Username from settings: ${GREEN}$username${NC}"
-    read -p "Do you want to use this username? (y/n): " confirm
-    if [[ "$confirm" != "y" ]]; then
+    if ! confirm_prompt "Do you want to use this username? (y/n): "; then
         log "User chose to override username from settings"
         # Let user override the settings value
         while true; do
@@ -103,8 +101,7 @@ else
                 continue
             fi
             
-            read -p "Is this correct? (y/n): " confirm
-            if [[ "$confirm" == "y" ]]; then
+            if confirm_prompt "Is this correct? (y/n): "; then
                 username=$new_username
                 log "User confirmed new username: $username"
                 # Update the settings file with the new username using direct sed approach

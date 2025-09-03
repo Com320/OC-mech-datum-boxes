@@ -49,8 +49,7 @@ if [ $? -eq 0 ]; then
     log "Service configuration saved to: /usr/lib/systemd/system/datum.service"
     
     # Enable and start the service if requested
-    read -p "Do you want to enable and start the service now? (y/n): " start_service
-    if [[ "$start_service" == "y" ]]; then
+    if confirm_prompt "Do you want to enable and start the service now? (y/n): "; then
         log "User chose to enable and start the service"
         log "Running: systemctl daemon-reload"
         systemctl daemon-reload

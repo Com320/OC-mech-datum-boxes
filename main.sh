@@ -16,8 +16,7 @@ DIRTY_MARKER="$USER_HOME/.datum_inst"
 if [ -f "$DIRTY_MARKER" ]; then
   RUN_DATE=$(head -n 1 "$DIRTY_MARKER")
   echo -e "${RED}WARNING: This script was previously run on $RUN_DATE and exited uncleanly. This can cause problems with the tools and services it installs.\nIt is strongly recommended to wipe and reinstall the operating system before continuing.${NC}"
-  read -p "Do you want to proceed anyway? (y/n): " confirm_dirty
-  if [[ "$confirm_dirty" != "y" ]]; then
+  if ! confirm_prompt "Do you want to proceed anyway? (y/n): "; then
     echo "Exiting as requested."
     exit 1
   fi

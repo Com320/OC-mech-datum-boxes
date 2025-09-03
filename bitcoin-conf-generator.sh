@@ -80,8 +80,7 @@ get_rpcauth_input() {
 # Function to confirm user input
 confirm_input() {
     echo "$1"
-    read -p "Is this correct? (y/n): " confirm
-    if [[ "$confirm" != "y" ]]; then
+    if ! confirm_prompt "Is this correct? (y/n): "; then
         log "User chose to edit the configuration"
         return 1
     fi
@@ -277,8 +276,7 @@ log_display "${YELLOW}Would you like bitcoin-cli to work without specifying the 
 log_display "${YELLOW}If you choose yes, this script will:\n  1. Rename any existing $bitcoin_dir directory or symlink to a backup with a timestamp (e.g., $bitcoin_dir.backup_YYYYMMDD_HHMMSS).\n  2. Create a symlink from $user_input2 to $bitcoin_dir, so bitcoin-cli and related tools will use $user_input2 by default.${NC}"
 log_display "${RED}IMPORTANT: This does NOT delete your data, but the original $bitcoin_dir will no longer be used by default. If this is a new installation, $bitcoin_dir should not contain any critical information.${NC}"
 
-read -p "Do you want to set up bitcoin-cli to work without specifying --datadir? (y/n): " setup_bitcoin_symlink
-if [[ "$setup_bitcoin_symlink" == "y" ]]; then
+if confirm_prompt "Do you want to set up bitcoin-cli to work without specifying --datadir? (y/n): "; then
     if [ -L "$bitcoin_dir" ] || [ -d "$bitcoin_dir" ]; then
         timestamp=$(date +%Y%m%d_%H%M%S)
         new_bitcoin_dir="$bitcoin_dir.backup_$timestamp"
