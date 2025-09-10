@@ -214,16 +214,30 @@ else
     exit 1
 fi
 
-# Read run_tests setting (default to true if not found)
-run_tests=$(read_json_value "build_options.run_tests" "$SETTINGS_FILE")
-if [ -z "$run_tests" ]; then
+# Read run_tests setting and normalize to a boolean flag
+# Accept true/yes/1 (case-insensitive) as true; everything else is false
+run_tests_raw=$(read_json_value "build_options.run_tests" "$SETTINGS_FILE")
+if [ -z "$run_tests_raw" ]; then
     log_display "${YELLOW}Could not determine run_tests from settings.json. Using default 'true'.${NC}"
-    run_tests=true
-    log "Using default run_tests: $run_tests"
+    run_tests_raw=true
+    log "Using default run_tests: $run_tests_raw"
+else
+    log "Configured run_tests (raw): $run_tests_raw"
 fi
 
+# Normalize to lowercase and determine boolean
+run_tests_lc=$(echo "$run_tests_raw" | tr '[:upper:]' '[:lower:]')
+case "$run_tests_lc" in
+    true|1|yes)
+        RUN_TESTS_BOOL=true
+        ;;
+    *)
+        RUN_TESTS_BOOL=false
+        ;;
+esac
+
 # Conditionally run make check/tests
-if [ "$run_tests" = true ]; then
+if [ "$RUN_TESTS_BOOL" = true ]; then
     log_display "Running tests..."
     if su - "$username" -c "cd $bitcoin_src && make check" 2>&1 | tee -a "$LOG_FILE"; then
         log_display "${GREEN}Tests completed successfully.${NC}"
@@ -232,7 +246,7 @@ if [ "$run_tests" = true ]; then
         exit 1
     fi
 else
-    log_display "${YELLOW}Skipping tests as run_tests is set to false in settings.json.${NC}"
+    log_display "${YELLOW}Skipping tests (run_tests configured as: $run_tests_raw).${NC}"
 fi
 
 # The binary is located at a known path after build
