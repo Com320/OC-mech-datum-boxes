@@ -45,8 +45,31 @@ default_rpc_user="datumuser"
 # Ask for RPC username
 log_display "${GREEN}Generating RPC authentication details${NC}"
 log_display "This will create authentication credentials for Bitcoin RPC access"
-read -p "Enter RPC username (default: $default_rpc_user): " rpc_username
-rpc_username=${rpc_username:-$default_rpc_user}
+
+# Validate username: allow lowercase letters, digits, underscore and hyphen
+# must start with a lowercase letter or underscore, length 2-16 characters
+username_pattern='^[a-z_][a-z0-9_-]{1,15}$'
+while true; do
+    read -p "Enter RPC username (default: $default_rpc_user): " input_username
+    # If empty, use default and accept
+    if [ -z "$input_username" ]; then
+        rpc_username="$default_rpc_user"
+        break
+    fi
+
+    # Convert to lowercase to be safe (usernames on most systems are lowercase)
+    # but do not modify underscores or hyphens; only letters are affected
+    lc_username=$(echo "$input_username" | tr '[:upper:]' '[:lower:]')
+
+    if [[ $lc_username =~ $username_pattern ]]; then
+        rpc_username="$lc_username"
+        break
+    else
+        log_display "${RED}Invalid username. Must be 2-16 characters, start with a lowercase letter or underscore, and contain only lowercase letters, digits, underscores or hyphens.${NC}"
+        log_display "Example valid usernames: datumuser, user_01, _service"
+        # loop again
+    fi
+done
 log "Using RPC username: $rpc_username"
 
 # Run the rpcauth.py script
