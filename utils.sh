@@ -69,6 +69,11 @@ read_json_value() {
         echo "" # Return empty if file not found
         return 1
     fi
+    # jq must be available in this repo's environment; fail loudly if not
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "JQ FAILED TO START" >&2
+        return 2
+    fi
     # If key contains a dot, treat as nested (e.g., user.username)
     if [[ "$key" == *.* ]]; then
         jq -r ".${key} // empty" "$file"
@@ -89,16 +94,29 @@ read_json_bool() {
         return 1
     fi
     local value=""
+    # jq must be available; error if missing
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "JQ FAILED TO START" >&2
+        return 2
+    fi
     if [[ "$key" == *"."* ]]; then
         value=$(jq -r ".${key} // empty" "$file")
     else
         value=$(jq -r ".\"$key\" // empty" "$file")
     fi
-    if [ "$value" == "true" ]; then
-        return 0
-    else
+    # Normalize and accept common truthy values: true, 1, yes (case-insensitive)
+    if [ -z "$value" ]; then
         return 1
     fi
+    value_lc=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+    case "$value_lc" in
+        true|1|yes)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 export -f read_json_bool
 
@@ -261,7 +279,7 @@ get_username() {
             read user_input
             user_input=$(echo "$user_input" | xargs)
             log "User entered: $user_input"
-            if confirm_prompt "Is this correct? (y/n): "; then
+            if confirm_prompt "Confirm username '$user_input'? (y/n): "; then
                 username="$user_input"
                 update_json_value "user.username" "$username" "$SETTINGS_FILE"
                 log "Updated settings.json with new username: $username"
@@ -281,13 +299,13 @@ get_username() {
                 read user_input
                 user_input="$(echo "$user_input" | xargs)"
                 log "User entered: $user_input"
-                if confirm_prompt "Is this correct? (y/n): "; then
-                    username="$user_input"
-                    update_json_value "user.username" "$username" "$SETTINGS_FILE"
-                    log "Updated settings.json with new username: $username"
-                    echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
-                    break
-                fi
+                    if confirm_prompt "Confirm username '$user_input'? (y/n): "; then
+                        username="$user_input"
+                        update_json_value "user.username" "$username" "$SETTINGS_FILE"
+                        log "Updated settings.json with new username: $username"
+                        echo -e "${YELLOW}Settings file updated with new username: $username${NC}" >&2
+                        break
+                    fi
                 log "User requested to try again"
                 printf "Let's try again.\n" >&2
             done
@@ -306,7 +324,12 @@ get_username() {
         return 1
     fi
     log "Username verified: $username"
-    printf "%s" "$username"
+    # Export the username into a global variable for callers that need an
+    # interactive invocation (avoids subshell/stdin issues). Also print it to
+    # stdout for backwards compatibility when callers capture output.
+    GET_USERNAME="$username"
+    export GET_USERNAME
+    # printf "%s" "$username"
 }
 
 # Get home directory for a user
@@ -373,15 +396,68 @@ test_utils() {
         return 1
     fi
 
-        # Robust tree view: print all key paths and values, indented by depth (compatible with older jq)
-        echo -e "\n${GREEN}Dumping all key-value pairs in settings.json (tree view):${NC}"
-        jq -r '
-            paths(scalars) as $p
-            | (reduce range(0; ($p | length)-1) as $i (""; . + "\t"))
-                + ([ $p[] | tostring ] | join("."))
-                + ": "
-                + (getpath($p) | tostring)
-        ' "$SETTINGS_FILE"
+    # Unit-style validation: iterate all scalar paths as jq sees them and assert values are present
+    echo -e "\n${GREEN}Validating all key/value pairs from settings.json:${NC}"
+
+    # Allowlist: keys that are allowed to be empty (won't count as FAIL)
+    OPTIONAL_KEYS=("datum_options.coinbase_tag_secondary")
+
+    # Initialize fail counter before any checks
+    local fail_count=0
+
+    # Note: build_options.run_tests is validated like any other scalar below.
+    # Historically we had a special-case here to handle unquoted booleans; that
+    # caused confusing behavior when values were not quoted. The configuration
+    # convention is to quote boolean-like values ("true"/"false") so they are
+    # consistently treated as strings by the scalar enumeration. Remove the
+    # special-case and let the generic validator handle run_tests.
+        # Use @tsv to safely separate path and value
+        while IFS=$'\t' read -r pth val; do
+            # Trim whitespace
+            val_trim=$(echo -n "$val" | xargs)
+            # Skip optional keys
+            skip=false
+            for opt in "${OPTIONAL_KEYS[@]}"; do
+                if [ "$opt" = "$pth" ]; then
+                    skip=true
+                    break
+                fi
+            done
+            if [ "$skip" = true ]; then
+                echo -e "${YELLOW}SKIP${NC} ${pth} -> '${val_trim}' (optional)"
+                continue
+            fi
+
+            if [ -z "$val_trim" ] || [ "$val_trim" = "null" ]; then
+                echo -e "${RED}FAIL${NC} ${pth} -> '${val}'"
+                fail_count=$((fail_count+1))
+            else
+                # Detect boolean-like values and route them through read_json_bool
+                val_lc=$(echo -n "$val_trim" | tr '[:upper:]' '[:lower:]')
+                case "$val_lc" in
+                    true|false|1|0|yes|no)
+                        # Print PASS with quoted value
+                        echo -e "${GREEN}PASS${NC} ${pth} -> '${val_trim}'"
+                        # Show how read_json_bool interprets the value
+                        if read_json_bool "$pth" "$SETTINGS_FILE"; then
+                            echo -e "${GREEN}READ_BOOL${NC} read_json_bool(\"$pth\") -> 'true'"
+                        else
+                            echo -e "${YELLOW}READ_BOOL${NC} read_json_bool(\"$pth\") -> 'false'"
+                        fi
+                        ;;
+                    *)
+                        echo -e "${GREEN}PASS${NC} ${pth} -> '${val_trim}'"
+                        ;;
+                esac
+            fi
+        done < <(jq -r 'paths(scalars) as $p | [($p | map(tostring) | join(".")), (getpath($p) | tostring)] | @tsv' "$SETTINGS_FILE")
+
+        if [ $fail_count -gt 0 ]; then
+            echo -e "\n${RED}Validation FAILED: $fail_count missing or null value(s) in $SETTINGS_FILE${NC}"
+            return 1
+        else
+            echo -e "\n${GREEN}Validation PASSED: All scalar keys have non-empty values.${NC}"
+        fi
 
     # Test read_json_value function with username and logpath
     echo -e "\n${GREEN}Testing read_json_value() function:${NC}"

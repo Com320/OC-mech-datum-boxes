@@ -9,9 +9,19 @@ init_logging "generate_datum_service"
 
 log "Starting Datum service generation script..."
 
-# Get username using the shared function
-username=$(get_username)
-if [ $? -ne 0 ]; then
+# Call get_username interactively (it exports GET_USERNAME). Avoid command
+# substitution because that runs the function in a subshell and breaks prompts.
+if get_username; then
+    # get_username now exports GET_USERNAME for callers; fall back to stdout if needed
+    if [ -n "$GET_USERNAME" ]; then
+        username="$GET_USERNAME"
+        # Added whitespace to separate log from screen output
+        echo ""
+    else
+        # Backward compatibility: capture printed output
+        username=$(get_username)
+    fi
+else
     log_display "${RED}Failed to get valid username. Exiting.${NC}"
     exit 1
 fi
