@@ -213,7 +213,14 @@ fi
 
 # Run configure with --disable-wallet --disable-zmq options
 log "Running configure with --disable-wallet..."
-if su - "$username" -c "cd $bitcoin_src && ./configure --disable-zmq --disable-wallet --prefix=$bitcoin_dir" 2>&1 | tee -a "$LOG_FILE"; then
+# Add extra configure args when tests are disabled to avoid building tests
+configure_args="--disable-zmq --disable-wallet --prefix=$bitcoin_dir"
+if [ "$RUN_TESTS_BOOL" != true ]; then
+    configure_args="$configure_args --disable-tests"
+    log "Tests disabled; adding --disable-tests to configure"
+fi
+
+if su - "$username" -c "cd $bitcoin_src && ./configure $configure_args" 2>&1 | tee -a "$LOG_FILE"; then
     log "Configure completed successfully."
 else
     log "Configure failed."
