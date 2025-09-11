@@ -1,16 +1,16 @@
 {
     "user": {
         "username": "bitcoin",
-        "create_if_not_exists": true
+        "create_if_not_exists": "true"
     },
     "logpath": "datum_instlogs",
     "scripts_path": "/root/OC-mech-datum-boxes",
     "build_options": {
         "cpu_cores": 4,
+        "run_tests": "false",
         "bitcoin_knots_tag": "v28.1.knots20250305",
-    "verify_signatures": true,
-    "key_fingerprint": "1A3E761F19D2CC7785C5502EA291A2C45D0C504A",
-    "run_tests": true
+        "verify_signatures": "true",
+        "key_fingerprint": "1A3E761F19D2CC7785C5502EA291A2C45D0C504A"
     },
     "datum_options": {
         "coinbase_tag_primary": "DATUM",

@@ -35,6 +35,21 @@ if [ -z "$cpu_cores" ]; then
     log "Using default cpu_cores: $cpu_cores"
 fi
 
+# Read run_tests setting (default to true if not found)
+run_tests_raw=$(read_json_value "build_options.run_tests" "$SETTINGS_FILE")
+if [ -z "$run_tests_raw" ]; then
+    log_display "${YELLOW}Could not determine run_tests from settings.json. Using default 'true'.${NC}"
+    run_tests_raw=true
+    RUN_TESTS_BOOL=true
+    log "Using default run_tests: $run_tests_raw"
+else
+    if read_json_bool "build_options.run_tests" "$SETTINGS_FILE"; then
+        RUN_TESTS_BOOL=true
+    else
+        RUN_TESTS_BOOL=false
+    fi
+fi
+
 # Read Bitcoin Knots tag to checkout (default to v28.1.knots20250305 if not found)
 bitcoin_knots_tag=$(read_json_value "build_options.bitcoin_knots_tag" "$SETTINGS_FILE")
 if [ -z "$bitcoin_knots_tag" ]; then
@@ -213,28 +228,6 @@ else
     log "make failed."
     exit 1
 fi
-
-# Read run_tests setting and normalize to a boolean flag
-# Accept true/yes/1 (case-insensitive) as true; everything else is false
-run_tests_raw=$(read_json_value "build_options.run_tests" "$SETTINGS_FILE")
-if [ -z "$run_tests_raw" ]; then
-    log_display "${YELLOW}Could not determine run_tests from settings.json. Using default 'true'.${NC}"
-    run_tests_raw=true
-    log "Using default run_tests: $run_tests_raw"
-else
-    log "Configured run_tests (raw): $run_tests_raw"
-fi
-
-# Normalize to lowercase and determine boolean
-run_tests_lc=$(echo "$run_tests_raw" | tr '[:upper:]' '[:lower:]')
-case "$run_tests_lc" in
-    true|1|yes)
-        RUN_TESTS_BOOL=true
-        ;;
-    *)
-        RUN_TESTS_BOOL=false
-        ;;
-esac
 
 # Conditionally run make check/tests
 if [ "$RUN_TESTS_BOOL" = true ]; then
