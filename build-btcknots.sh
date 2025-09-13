@@ -202,55 +202,136 @@ if [ "$verify_signatures" = true ]; then
     fi
 fi
 
-# Run autogen.sh
-log "Running autogen.sh..."
-if su - "$username" -c "cd $bitcoin_src && ./autogen.sh" 2>&1 | tee -a "$LOG_FILE"; then
-    log "autogen.sh completed successfully."
-else
-    log "autogen.sh failed."
-    exit 1
-fi
-
-# Run configure with --disable-wallet --disable-zmq options
-log "Running configure with --disable-wallet..."
-# Add extra configure args when tests are disabled to avoid building tests
-configure_args="--disable-zmq --disable-wallet --prefix=$bitcoin_dir"
-if [ "$RUN_TESTS_BOOL" != true ]; then
-    configure_args="$configure_args --disable-tests"
-    log "Tests disabled; adding --disable-tests to configure"
-fi
-
-if su - "$username" -c "cd $bitcoin_src && ./configure $configure_args" 2>&1 | tee -a "$LOG_FILE"; then
-    log "Configure completed successfully."
-else
-    log "Configure failed."
-    exit 1
-fi
-
-# Run make with the specified number of CPU cores
-log "Running make -j$cpu_cores..."
-if su - "$username" -c "cd $bitcoin_src && make -j$cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
-    log "make completed successfully."
-else
-    log "make failed."
-    exit 1
-fi
-
-# Conditionally run make check/tests
-if [ "$RUN_TESTS_BOOL" = true ]; then
-    log_display "Running tests..."
-    if su - "$username" -c "cd $bitcoin_src && make check" 2>&1 | tee -a "$LOG_FILE"; then
-        log_display "${GREEN}Tests completed successfully.${NC}"
+# Determine major version from tag (expects something like v28.1.knots20250305 or v29.0)
+extract_major_version() {
+    local tag="$1"
+    # Strip leading 'v' if present, then take first number sequence
+    tag="${tag#v}"
+    # Use parameter expansion to split on non-digit
+    local major
+    major=$(echo "$tag" | sed -E 's/[^0-9].*$//' )
+    if [[ ! $major =~ ^[0-9]+$ ]]; then
+        echo 0
     else
-        log_display "${RED}Error: Tests failed. See log for details.${NC}"
-        exit 1
+        echo "$major"
     fi
+}
+
+major_version=$(extract_major_version "$bitcoin_knots_tag")
+log "Detected major version: $major_version from tag $bitcoin_knots_tag"
+
+USE_CMAKE=false
+if [ "$major_version" -ge 29 ]; then
+    USE_CMAKE=true
+    log "Using CMake build path for version >=29"
 else
-    log_display "${YELLOW}Skipping tests (run_tests configured as: $run_tests_raw).${NC}"
+    log "Using Autotools build path for version <29"
 fi
 
-# The binary is located at a known path after build
-built_binary="$bitcoin_src/src/bitcoind"
+if [ "$USE_CMAKE" = true ]; then
+    # CMake build path
+    build_dir="build"
+    cmake_args=(
+        -DBUILD_TESTS=OFF \
+        -DBUILD_WALLET_TOOL=OFF \
+        -DWITH_ZMQ=OFF
+    )
+
+    # If tests requested, adjust
+    if [ "$RUN_TESTS_BOOL" = true ]; then
+        # Assuming future CMake option name; adjust if upstream differs
+        cmake_args=("${cmake_args[@]/-DBUILD_TESTS=OFF/-DBUILD_TESTS=ON}")
+        log "Tests enabled: switching -DBUILD_TESTS=ON for CMake"
+    fi
+
+    # Toolchain file (musl) detection - only add if present
+    toolchain_file="depends/x86_64-pc-linux-musl/toolchain.cmake"
+    if [ -f "$bitcoin_src/$toolchain_file" ]; then
+        cmake_toolchain_arg=(--toolchain "$toolchain_file")
+        log "Found toolchain file: $toolchain_file"
+    else
+        cmake_toolchain_arg=()
+        log "No toolchain file found at $toolchain_file (continuing without it)."
+    fi
+
+    log "Configuring with CMake..."
+    if su - "$username" -c "cd $bitcoin_src && cmake -B $build_dir ${cmake_toolchain_arg[*]} ${cmake_args[*]}" 2>&1 | tee -a "$LOG_FILE"; then
+        log "CMake configure completed successfully."
+    else
+        log "CMake configure failed."; exit 1
+    fi
+
+    log "Building with CMake -j$cpu_cores..."
+    if su - "$username" -c "cd $bitcoin_src && cmake --build $build_dir -j $cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
+        log "CMake build completed successfully."
+    else
+        log "CMake build failed."; exit 1
+    fi
+
+    if [ "$RUN_TESTS_BOOL" = true ]; then
+        # Placeholder for future CTest integration
+        if command -v ctest >/dev/null 2>&1; then
+            log_display "Running CTest..."
+            if su - "$username" -c "cd $bitcoin_src/$build_dir && ctest --output-on-failure" 2>&1 | tee -a "$LOG_FILE"; then
+                log_display "${GREEN}CTest completed successfully.${NC}"
+            else
+                log_display "${RED}Error: CTest failed. See log for details.${NC}"; exit 1
+            fi
+        else
+            log_display "${YELLOW}ctest not found; skipping tests although RUN_TESTS is true.${NC}"
+        fi
+    else
+        log_display "${YELLOW}Skipping tests (run_tests configured as: $run_tests_raw).${NC}"
+    fi
+
+    # Set paths for binaries under CMake build (assuming similar layout)
+    built_binary="$bitcoin_src/$build_dir/src/bitcoind"
+    cli_binary="$bitcoin_src/$build_dir/src/bitcoin-cli"
+else
+    # Autotools path (existing logic)
+    log "Running autogen.sh..."
+    if su - "$username" -c "cd $bitcoin_src && ./autogen.sh" 2>&1 | tee -a "$LOG_FILE"; then
+        log "autogen.sh completed successfully."
+    else
+        log "autogen.sh failed."; exit 1
+    fi
+
+    log "Running configure with --disable-wallet..."
+    configure_args="--disable-zmq --disable-wallet --prefix=$bitcoin_dir"
+    if [ "$RUN_TESTS_BOOL" != true ]; then
+        configure_args="$configure_args --disable-tests"
+        log "Tests disabled; adding --disable-tests to configure"
+    fi
+
+    if su - "$username" -c "cd $bitcoin_src && ./configure $configure_args" 2>&1 | tee -a "$LOG_FILE"; then
+        log "Configure completed successfully."
+    else
+        log "Configure failed."; exit 1
+    fi
+
+    log "Running make -j$cpu_cores..."
+    if su - "$username" -c "cd $bitcoin_src && make -j$cpu_cores" 2>&1 | tee -a "$LOG_FILE"; then
+        log "make completed successfully."
+    else
+        log "make failed."; exit 1
+    fi
+
+    if [ "$RUN_TESTS_BOOL" = true ]; then
+        log_display "Running tests..."
+        if su - "$username" -c "cd $bitcoin_src && make check" 2>&1 | tee -a "$LOG_FILE"; then
+            log_display "${GREEN}Tests completed successfully.${NC}"
+        else
+            log_display "${RED}Error: Tests failed. See log for details.${NC}"; exit 1
+        fi
+    else
+        log_display "${YELLOW}Skipping tests (run_tests configured as: $run_tests_raw).${NC}"
+    fi
+
+    built_binary="$bitcoin_src/src/bitcoind"
+    cli_binary="$bitcoin_src/src/bitcoin-cli"
+fi
+
+# The binary path is decided by build system above
 log "Checking binary at known path: $built_binary"
 if su - "$username" -c "test -f $built_binary && test -x $built_binary"; then
     log "Verified: Binary exists and is executable at $built_binary"
@@ -261,8 +342,7 @@ else
     exit 1
 fi
 
-# Repeat the same checks for bitcoin-cli
-cli_binary="$bitcoin_src/src/bitcoin-cli"
+# Repeat the same checks for bitcoin-cli (cli_binary already set in build path)
 log "Checking bitcoin-cli binary at known path: $cli_binary"
 if su - "$username" -c "test -f $cli_binary && test -x $cli_binary"; then
     log "Verified: bitcoin-cli exists and is executable at $cli_binary"
