@@ -284,9 +284,28 @@ if [ "$USE_CMAKE" = true ]; then
         log_display "${YELLOW}Skipping tests (run_tests configured as: $run_tests_raw).${NC}"
     fi
 
-    # Set paths for binaries under CMake build (assuming similar layout)
-    built_binary="$bitcoin_src/$build_dir/src/bitcoind"
-    cli_binary="$bitcoin_src/$build_dir/src/bitcoin-cli"
+    # Set paths for binaries under CMake build.
+    # Observed actual layout: $bitcoin_src/$build_dir/bin/bitcoind (as per user logs)
+    built_binary="$bitcoin_src/$build_dir/bin/bitcoind"
+    cli_binary="$bitcoin_src/$build_dir/bin/bitcoin-cli"
+
+    # If the expected bin path does not exist, attempt to auto-detect alternative locations.
+    if [ ! -x "$built_binary" ]; then
+        log "Primary expected CMake binary path not found: $built_binary. Attempting discovery..."
+        # Search limited to build dir for speed
+        detected_bitcoind=$(su - "$username" -c "find '$bitcoin_src/$build_dir' -maxdepth 4 -type f -name bitcoind 2>/dev/null | head -n1")
+        if [ -n "$detected_bitcoind" ] && su - "$username" -c "test -x '$detected_bitcoind'"; then
+            built_binary="$detected_bitcoind"
+            log "Discovered bitcoind at: $built_binary"
+        else
+            log "Could not locate bitcoind within $bitcoin_src/$build_dir via discovery.";
+        fi
+        detected_cli=$(su - "$username" -c "find '$bitcoin_src/$build_dir' -maxdepth 4 -type f -name bitcoin-cli 2>/dev/null | head -n1")
+        if [ -n "$detected_cli" ] && su - "$username" -c "test -x '$detected_cli'"; then
+            cli_binary="$detected_cli"
+            log "Discovered bitcoin-cli at: $cli_binary"
+        fi
+    fi
 else
     # Autotools path (existing logic)
     log "Running autogen.sh..."
