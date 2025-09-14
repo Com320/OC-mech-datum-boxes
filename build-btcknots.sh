@@ -86,19 +86,35 @@ verify_git_tag() {
         return 1
     fi
     
-    # Get the path to scripts from settings.json, default to /root/OC-mech-datum-boxes if not found
+    # Get the path to scripts from settings.json, try both configured and all-lowercase variant
     local script_dir=$(read_json_value "scripts_path" "$SETTINGS_FILE")
     if [ -z "$script_dir" ]; then
         log "${YELLOW}Could not determine scripts_path from settings.json. Using default '/root/OC-mech-datum-boxes'.${NC}"
         script_dir="/root/OC-mech-datum-boxes"
     fi
-    
-    local verify_script="$script_dir/verify-git-tag.sh"
-    local utils_script="$script_dir/utils.sh"
-    local settings_file="$script_dir/settings.json"
-    
-    if [ ! -f "$verify_script" ]; then
-        log "${RED}Error: Verification script not found at $verify_script${NC}"
+
+    # Prepare candidate paths: configured and lowercased
+    local script_dir_lc
+    script_dir_lc=$(echo "$script_dir" | tr '[:upper:]' '[:lower:]')
+
+    local verify_script=""
+    local utils_script=""
+    local settings_file=""
+
+    # Prefer the configured path if it contains the verify script
+    if [ -f "$script_dir/verify-git-tag.sh" ]; then
+        verify_script="$script_dir/verify-git-tag.sh"
+        utils_script="$script_dir/utils.sh"
+        settings_file="$script_dir/settings.json"
+        log "Using scripts_path from settings.json: $script_dir"
+    elif [ "$script_dir_lc" != "$script_dir" ] && [ -f "$script_dir_lc/verify-git-tag.sh" ]; then
+        # Fall back to lowercase variant (some clones may create a lowercase path)
+        verify_script="$script_dir_lc/verify-git-tag.sh"
+        utils_script="$script_dir_lc/utils.sh"
+        settings_file="$script_dir_lc/settings.json"
+        log "Using lowercase scripts_path variant: $script_dir_lc"
+    else
+        log "${RED}Error: Verification script not found in configured scripts_path ($script_dir) nor in lowercase variant ($script_dir_lc)${NC}"
         return 1
     fi
     
