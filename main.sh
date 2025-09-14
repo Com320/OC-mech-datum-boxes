@@ -8,6 +8,19 @@
 SCRIPT_DIR="$(dirname "$0")"
 source "$SCRIPT_DIR/utils.sh"
 
+# Helper: print instructions to run a proper root shell, remove dirty marker, and exit
+require_root_shell() {
+  echo -e "${RED}This script must be run as root directly, not with 'sudo <script>'.${NC}"
+  echo "To switch to root, run one of the following:"
+  echo "  sudo -i"
+  echo "  su -"
+  echo "Or log in as root directly if enabled."
+  echo "Then run this script again from the root shell."
+  # We didn't perform any work in this run — clear the dirty marker if present and exit
+  rm -f "$DIRTY_MARKER" 2>/dev/null || true
+  exit 1
+}
+
 # Dirty marker file path in the running user's home directory
 USER_HOME=$(eval echo ~$(id -un))
 DIRTY_MARKER="$USER_HOME/.datum_inst"
@@ -36,17 +49,24 @@ fi
 
 # Check if running as root, sudo, or neither
 if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
-  echo -e "${RED}This script must be run as root directly, not with 'sudo <script>'.${NC}"
-  echo "To switch to root, run one of the following:"
-  echo "  sudo -i"
-  echo "  su -"
-  echo "Or log in as root directly if enabled."
-  echo "Then run this script again from the root shell."
-  exit 1
+  require_root_shell
 elif [ "$(id -u)" -eq 0 ]; then
   echo -e "${GREEN}Running as root (not via sudo).${NC}"
 else
-  echo -e "${RED}This script must be run as root. Please switch to root using 'sudo -i', 'su -', or log in as root directly.${NC}"
+  require_root_shell
+fi
+
+# Environment sanity check: ensure administrative tools like useradd are visible
+if ! command -v useradd >/dev/null 2>&1; then
+  echo -e "${YELLOW}Warning: 'useradd' not found in PATH. Your environment may not be a full root shell (sbin dirs may be missing from PATH).${NC}"
+  echo "This can happen if you ran the script with 'sudo <script>' rather than entering a root shell."
+  echo "Some people use plain 'su' (without the dash) and it may appear to work, but that does not always set a full login environment; /sbin and /usr/sbin may still be missing from PATH."
+  echo "Recommended ways to get a proper root environment and re-run this script:"
+  echo "  sudo -i     # start an interactive login shell as root"
+  echo "  su -        # start a login shell as root (sets PATH and environment)"
+  echo "After switching to one of the recommended methods, run this script again from the root shell."
+  # We didn't perform any work in this run — clear the dirty marker if present and exit
+  rm -f "$DIRTY_MARKER" 2>/dev/null || true
   exit 1
 fi
 
