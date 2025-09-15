@@ -123,14 +123,14 @@ while true; do
     if [[ -z "$available_mb" ]]; then
         default_pruneduringinit="550" # fallback default
     else
-    # Use 70% of free space as the default pruneduringinit
-    default_pruneduringinit=$(awk "BEGIN {printf \"%d\", $available_mb * 0.7}")
+    # Use 40% of free space as the default pruneduringinit
+    default_pruneduringinit=$(awk "BEGIN {printf \"%d\", $available_mb * 0.4}")
     fi
     
     user_input3=$(get_input "Enter a target blockchain size (prune) in megabytes (MB) to save disk space." "550")
     user_input4=$(get_input "Enter the database cache size in megabytes (MB)" "450")
     user_input5=$(get_rpcauth_input "$default_rpcauth")
-    user_input6=$(get_input "Enter pruneduringinit value. This sets the maximum space (in MB) that can be used during initial sync before pruning. Default is 70% of available space in $user_input2." "$default_pruneduringinit")
+    user_input6=$(get_input "Enter pruneduringinit value. This sets the maximum space (in MB) that can be used during initial sync before pruning. Default is 40% of available space in $user_input2." "$default_pruneduringinit")
     
     echo "You entered the following values:"
     echo "Location for bitcoin.conf: $user_input1"
