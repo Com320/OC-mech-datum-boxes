@@ -112,17 +112,19 @@ while true; do
     user_input1=$(get_input "Enter location for the bitcoin.conf file" "$default_conf")
     user_input2=$(get_input "Enter location for the 'data' directory" "$default_data")
     
-    # Calculate pruneduringinit default (90% of available space in user_input2 or its parent if missing)
+    # Calculate pruneduringinit default (70% of available FREE space in user_input2 or its parent if missing)
     if [ -d "$user_input2" ]; then
         df_target="$user_input2"
     else
         df_target="$(dirname "$user_input2")"
     fi
+    # Use free space (available) reported by df in megabytes
     available_mb=$(df -m "$df_target" 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -z "$available_mb" ]]; then
         default_pruneduringinit="550" # fallback default
     else
-        default_pruneduringinit=$(awk "BEGIN {printf \"%d\", $available_mb * 0.7}")
+    # Use 70% of free space as the default pruneduringinit
+    default_pruneduringinit=$(awk "BEGIN {printf \"%d\", $available_mb * 0.7}")
     fi
     
     user_input3=$(get_input "Enter a target blockchain size (prune) in megabytes (MB) to save disk space." "550")
