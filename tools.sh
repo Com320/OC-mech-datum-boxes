@@ -956,6 +956,7 @@ sync_status_monitor() {
 
     if [ -z "$info" ]; then
       buffer+=$(printf '%b\n' "${YELLOW}WARN${NC}: bitcoin-cli failed to return getblockchaininfo (bitcoind down or auth issue).")
+      buffer+=$'\n'
     else
       local chain blocks headers progress ibd size_on_disk pct
       chain=$(jq -r '.chain // empty' <<<"$info" 2>/dev/null || echo "?")
