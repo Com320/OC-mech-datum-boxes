@@ -5,6 +5,63 @@
 
 source ./utils.sh
 
+# Convert bytes to a human-readable string (e.g. 1234567 -> 1.18 MB)
+# Usage: bytes_to_human <bytes>
+bytes_to_human() {
+  local bytes=${1:-0}
+  local unit="B"
+  local value=$bytes
+  if [ "$bytes" -ge 1099511627776 ]; then
+    unit="TB"
+    value=$(awk "BEGIN {printf \"%.2f\", $bytes/1099511627776}")
+  elif [ "$bytes" -ge 1073741824 ]; then
+    unit="GB"
+    value=$(awk "BEGIN {printf \"%.2f\", $bytes/1073741824}")
+  elif [ "$bytes" -ge 1048576 ]; then
+    unit="MB"
+    value=$(awk "BEGIN {printf \"%.2f\", $bytes/1048576}")
+  elif [ "$bytes" -ge 1024 ]; then
+    unit="KB"
+    value=$(awk "BEGIN {printf \"%.2f\", $bytes/1024}")
+  fi
+  printf "%s %s" "$value" "$unit"
+}
+
+# Show recent journal entries for a systemd service (last 5 lines).
+# Usage: show_recent_journal <service>
+show_recent_journal() {
+  local svc="$1"
+  if ! command -v journalctl >/dev/null 2>&1; then
+    echo -e "${YELLOW}WARN${NC}: journalctl not available; cannot show recent logs for $svc"
+    return 0
+  fi
+
+  echo "--- Recent logs: $svc (last 5 lines) ---"
+
+  # If running as root, call directly
+  if [ "$(id -u)" -eq 0 ]; then
+    journalctl -u "$svc" -n 5 --no-pager 2>/dev/null || echo "(no journal entries or permission denied)"
+    return 0
+  fi
+
+  # Try non-interactive sudo if available
+  if command -v sudo >/dev/null 2>&1; then
+    # -n makes sudo fail rather than prompt; if it fails, fall back to instruction
+    if sudo -n journalctl -u "$svc" -n 5 --no-pager >/dev/null 2>&1; then
+      sudo -n journalctl -u "$svc" -n 5 --no-pager 2>/dev/null || echo "(no journal entries)"
+      return 0
+    else
+      echo -e "${YELLOW}WARN${NC}: journalctl requires elevated privileges to read $svc logs. Run with sudo to view logs."
+      return 0
+    fi
+  fi
+
+  # No sudo available and not root
+  echo -e "${YELLOW}WARN${NC}: Not running as root and sudo not available; cannot read system journal for $svc"
+  echo "Try: sudo journalctl -u $svc -n 5 --no-pager"
+  return 0
+}
+
 
 collect_logs() {
   echo -e "Collecting logs and configs..."
@@ -389,7 +446,7 @@ check_default_data_free_space() {
   fi
 
   # If target doesn't exist, use its parent directory for df
-  if [ ! -e "$default_data" ]; thenl
+  if [ ! -e "$default_data" ]; then
     target=$(dirname "$default_data")
   else
     target="$default_data"
@@ -821,6 +878,142 @@ set_datum_log_level() {
   fi
 }
 
+
+# Bitcoin Chain Sync Status Monitor
+sync_status_monitor() {
+  echo -e "Starting Bitcoin Chain Sync Status Monitor. Press Ctrl-C to exit."
+
+  # Determine bitcoin.conf and data dir from settings
+  local btc_conf default_data df_target run_as_user
+  btc_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
+  default_data=$(read_json_value "bitcoin.default_data" "$SETTINGS_FILE" 2>/dev/null || true)
+  # Determine user to run bitcoin-cli as (if configured)
+  run_as_user=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
+
+  # Helper to invoke bitcoin-cli as the configured user when possible.
+  # Usage: run_bitcoin_cli <args...>
+  run_bitcoin_cli() {
+    local args
+    args=("$@")
+
+    # Prefer sudo when available
+    if [ -n "$run_as_user" ] && command -v sudo >/dev/null 2>&1; then
+      sudo -u "$run_as_user" -- bitcoin-cli "${args[@]}"
+      return $?
+    fi
+
+    # Fallback to runuser (some distros) without requiring a full login shell
+    if [ -n "$run_as_user" ] && command -v runuser >/dev/null 2>&1; then
+      runuser -u "$run_as_user" -- bitcoin-cli "${args[@]}"
+      return $?
+    fi
+
+    # Last-resort: su -c (may require password when not root)
+    if [ -n "$run_as_user" ]; then
+      su - "$run_as_user" -c "bitcoin-cli ${args[*]}"
+      return $?
+    fi
+
+    # If no user configured or all else failed, run directly
+    bitcoin-cli "${args[@]}"
+    return $?
+  }
+
+  # Ensure bitcoin-cli is available at least when run as the configured user
+  if ! command -v bitcoin-cli >/dev/null 2>&1; then
+    # If bitcoin-cli not in PATH for current user, still attempt to run as configured user later
+    echo -e "${YELLOW}WARN${NC}: bitcoin-cli not found in current PATH. Will attempt to invoke as configured user if possible."
+  fi
+
+  # Choose df target
+  if [ -n "$default_data" ] && [ -d "$default_data" ]; then
+    df_target="$default_data"
+  elif [ -n "$default_data" ]; then
+    df_target="$(dirname "$default_data")"
+  else
+    df_target="/var/lib/bitcoind"
+  fi
+
+  # Cleanup on Ctrl-C
+  trap 'echo; echo "Exiting sync monitor."; exit 0' INT TERM
+
+  while true; do
+    # Build the output in an in-memory buffer (string) so we can clear the
+    # screen once and print the fully-formed output. This reduces flicker
+    # when commands (like bitcoin-cli or journalctl) are slow to respond.
+    local buffer
+    buffer=""
+
+    buffer+=$'=== Bitcoin Chain Sync Status Monitor (press Ctrl-C to quit) ===\n\n'
+
+    # Get blockchain sync info (invoke via helper which runs as configured user when possible)
+    local info
+    if [ -n "$btc_conf" ] && [ -f "$btc_conf" ]; then
+      info=$(run_bitcoin_cli -conf="$btc_conf" getblockchaininfo 2>/dev/null || true)
+    else
+      info=$(run_bitcoin_cli getblockchaininfo 2>/dev/null || true)
+    fi
+
+    if [ -z "$info" ]; then
+      buffer+=$(printf '%b\n' "${YELLOW}WARN${NC}: bitcoin-cli failed to return getblockchaininfo (bitcoind down or auth issue).")
+    else
+      local chain blocks headers progress ibd size_on_disk pct
+      chain=$(jq -r '.chain // empty' <<<"$info" 2>/dev/null || echo "?")
+      blocks=$(jq -r '.blocks // empty' <<<"$info" 2>/dev/null || echo "?")
+      headers=$(jq -r '.headers // empty' <<<"$info" 2>/dev/null || echo "?")
+      progress=$(jq -r '.verificationprogress // 0' <<<"$info" 2>/dev/null || echo 0)
+      ibd=$(jq -r '.initialblockdownload // false' <<<"$info" 2>/dev/null || echo false)
+      size_on_disk=$(jq -r '.size_on_disk // empty' <<<"$info" 2>/dev/null || echo "?")
+
+      # Convert to human readable if numeric
+      local size_on_disk_human="$size_on_disk"
+      if [[ "$size_on_disk" =~ ^[0-9]+$ ]]; then
+        size_on_disk_human=$(bytes_to_human "$size_on_disk")
+      fi
+
+      # Format screen output
+      pct=$(awk "BEGIN {printf \"%.2f\", $progress * 100}")
+      buffer+=$(printf '%b\n' "Chain: ${GREEN}${chain}${NC}  |  Blocks: ${GREEN}${blocks}${NC} / ${GREEN}${headers}${NC}  |  Progress: ${GREEN}${pct}%${NC}")
+      buffer+=$'\n'
+      buffer+=$(printf '%b\n' "IBD: ${YELLOW}${ibd}${NC}  |  Size on disk: ${GREEN}${size_on_disk_human}${NC}")
+      buffer+=$'\n'
+    fi
+
+    # Get disk usage info
+    if command -v df >/dev/null 2>&1; then
+      local used_pct disk_pct_free
+      used_pct=$(df -h "$df_target" 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')
+      if [[ "$used_pct" =~ ^[0-9]+$ ]]; then
+        disk_pct_free=$((100 - used_pct))
+        buffer+=$(printf '%b\n' "Disk Free (approx): ${GREEN}${disk_pct_free}%${NC} (target: $df_target)")
+      else
+        buffer+=$(printf '%b\n' "${YELLOW}WARN${NC}: Could not read disk usage for $df_target")
+      fi
+    else
+      buffer+=$(printf '%b\n' "${YELLOW}WARN${NC}: df utility not available; cannot determine disk usage")
+    fi
+
+    buffer+=$'\n'
+    buffer+=$(printf '\nUpdated: %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')")
+    buffer+=$'\n'
+    buffer+=$'\n'
+    
+
+    # Append recent journal output for services (capture their output so it goes into the buffer)
+    # show_recent_journal prints its own header; capture it and append to buffer
+    buffer+=$(show_recent_journal bitcoin_knots.service 2>/dev/null || echo "(no journal entries or permission denied)\n")
+    buffer+=$'\n\n'
+    buffer+=$(show_recent_journal datum.service 2>/dev/null || echo "(no journal entries or permission denied)\n")
+
+    # Now clear the screen once and print the collected buffer
+    clear
+    printf '%s' "$buffer"
+
+    sleep 2
+  done
+}
+
+
 # Main menu loop
 while true; do
   echo "==== OCEAN Tools Menu ===="
@@ -834,6 +1027,7 @@ while true; do
   echo "8) Apply service retooling"
   echo "9) Apply fix for bitcoin-cli"
   echo "10) Set datum log level"
+  echo "12) Bitcoin Chain Sync Status Monitor"
   echo "11) Exit"
   read -p "Choose an option: " choice
 
@@ -848,6 +1042,7 @@ while true; do
   8) apply_service_retooling ;;
   9) fix_bitcoin_cli ;;
   10) set_datum_log_level ;;
+  12) sync_status_monitor ;;
   11) break ;;
     *) echo "Invalid option." ;;
   esac
