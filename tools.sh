@@ -763,12 +763,12 @@ set_datum_log_level() {
 
   # Mapping table
   echo "Log level mapping:"
-  echo "0  off"
-  echo "1  error"
-  echo "2  warn (recommended)"
-  echo "3  debug"
-  echo "4  info"
-  echo "5  everything"
+  echo "0  all"
+  echo "1  debug"
+  echo "2  info (recommended)"
+  echo "3  warn"
+  echo "4  error"
+  echo "5  fatal"
   echo
 
   # Locate datum config
