@@ -5,6 +5,23 @@
 
 source ./utils.sh
 
+# Wrapper to return a sanitized user home directory path suitable for
+# command-substitution. Some callers previously did `get_home_directory | tail -n1`
+# to avoid friendly log lines being captured. Centralize that here so all callers
+# get the final non-empty stdout line (stripped of CRs).
+get_user_home() {
+  local username="$1"
+  local out line
+  # Capture stdout from helper (suppress helper stderr) and pick the last
+  # non-empty line. This makes callers robust if helper prints human-readable
+  # messages to stderr or in unexpected situations.
+  out=$(get_home_directory "$username" 2>/dev/null || true)
+  line=$(printf '%s\n' "$out" | awk 'NF{l=$0} END{print l}')
+  # Remove any trailing CR characters that might sneak in
+  line=$(printf '%s' "$line" | tr -d '\r')
+  printf '%s' "$line"
+}
+
 # Convert bytes to a human-readable string (e.g. 1234567 -> 1.18 MB)
 # Usage: bytes_to_human <bytes>
 bytes_to_human() {
@@ -258,15 +275,34 @@ check_coinbase_tag_secondary() {
     echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
     return 1
   fi
-  user_home=$(get_home_directory "$username" 2>/dev/null || true)
+  user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${YELLOW}WARN${NC}: Could not determine home directory for $username"
     return 1
   fi
 
   cfg_path="$user_home/datum/datum_gateway_config.json"
-  if [ ! -f "$cfg_path" ]; then
+  # Sanitize path (remove common CR that can sneak in from files) and prefer a permissive existence check
+  cfg_path=$(printf "%s" "$cfg_path" | tr -d '\r')
+  if [ ! -e "$cfg_path" ]; then
     echo -e "${RED}FAIL${NC}: datum config not found at $cfg_path"
+    echo "Diagnostic: listing path and parent directory:"
+    ls -ld "$cfg_path" "$(dirname "$cfg_path")" 2>/dev/null || true
+    echo "Diagnostic: raw bytes of computed path (hex):"
+    printf '%s' "$cfg_path" | od -An -t x1 -v | sed 's/^/ /'
+    return 2
+  fi
+  # File exists - report that we found it
+  echo -e "${GREEN}PASS${NC}: datum config found at $cfg_path"
+  # Ensure file is not empty
+  if [ ! -s "$cfg_path" ]; then
+    echo -e "${RED}FAIL${NC}: datum config exists but is empty: $cfg_path"
+    ls -l "$cfg_path" 2>/dev/null || true
+    return 2
+  fi
+  if [ ! -r "$cfg_path" ]; then
+    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $cfg_path"
+    ls -l "$cfg_path" 2>/dev/null || true
     return 2
   fi
 
@@ -276,7 +312,8 @@ check_coinbase_tag_secondary() {
   fi
 
   local val
-  val=$(jq -r '.coinbase_tag_secondary // empty' "$cfg_path" 2>/dev/null || true)
+  # coinbase_tag_secondary lives under the "mining" object in datum config
+  val=$(jq -r '.mining.coinbase_tag_secondary // empty' "$cfg_path" 2>/dev/null || true)
   if [ -n "$val" ]; then
     echo -e "${GREEN}PASS${NC}: coinbase_tag_secondary is set to '$val' in $cfg_path"
     return 0
@@ -351,14 +388,24 @@ check_datum_rpc_match() {
     echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
     return 2
   fi
-  user_home=$(get_home_directory "$username" 2>/dev/null || true)
+  user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${YELLOW}WARN${NC}: Could not determine home directory for $username"
     return 2
   fi
   datum_cfg="$user_home/datum/datum_gateway_config.json"
-  if [ ! -f "$datum_cfg" ]; then
+  datum_cfg=$(printf "%s" "$datum_cfg" | tr -d '\r')
+  if [ ! -e "$datum_cfg" ]; then
     echo -e "${RED}FAIL${NC}: datum config not found at $datum_cfg"
+    echo "Diagnostic: listing path and parent directory:"
+    ls -ld "$datum_cfg" "$(dirname "$datum_cfg")" 2>/dev/null || true
+    echo "Diagnostic: raw bytes of computed path (hex):"
+    printf '%s' "$datum_cfg" | od -An -t x1 -v | sed 's/^/ /'
+    return 3
+  fi
+  if [ ! -r "$datum_cfg" ]; then
+    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $datum_cfg"
+    ls -l "$datum_cfg" 2>/dev/null || true
     return 3
   fi
 
@@ -396,9 +443,38 @@ check_datum_rpc_match() {
       echo -e "${YELLOW}WARN${NC}: could not parse username from rpcauth entry"
       pass=1
     fi
-    # Cannot compare password when rpcauth is used
+    # rpcauth stores a salted hash in bitcoin.conf so we can't compare
+    # the stored hash to the datum password. Some tooling writes the
+    # generated plaintext password to rpcinfo.bin in the user's home; try
+    # to read and compare that when available for a stronger check.
     if [ -n "$datum_pass" ]; then
-      echo -e "${YELLOW}WARN${NC}: bitcoin.conf uses rpcauth; datum password cannot be compared against stored rpcauth hash"
+      local rpcinfo_file generated_pw
+      if [ -n "$user_home" ] && [ -r "$user_home/rpcinfo.bin" ]; then
+        rpcinfo_file="$user_home/rpcinfo.bin"
+      elif [ -r "/home/$username/rpcinfo.bin" ]; then
+        rpcinfo_file="/home/$username/rpcinfo.bin"
+      fi
+
+      if [ -n "$rpcinfo_file" ]; then
+        # Try to extract the plaintext password after the 'Your password:' label
+        generated_pw=$(awk -F': ' '/Your password/ { if (NF>1) {print $2; exit} else { if (getline) print; exit } }' "$rpcinfo_file" 2>/dev/null || true)
+        # Trim whitespace
+        generated_pw=$(printf '%s' "$generated_pw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        if [ -n "$generated_pw" ]; then
+          if [ "$datum_pass" = "$generated_pw" ]; then
+            echo -e "${GREEN}PASS${NC}: datum RPC password matches generated password from $rpcinfo_file"
+          else
+            echo -e "${RED}FAIL${NC}: datum RPC password does not match generated password from $rpcinfo_file"
+            pass=1
+          fi
+        else
+          echo -e "${YELLOW}WARN${NC}: rpcinfo.bin present but password could not be parsed: $rpcinfo_file"
+          pass=1
+        fi
+      else
+        echo -e "${YELLOW}WARN${NC}: bitcoin.conf uses rpcauth; datum password cannot be compared against stored rpcauth hash (rpcinfo.bin not found)"
+        pass=1
+      fi
     fi
   else
     # bitcoind uses rpcuser/rpcpassword - compare both
@@ -628,7 +704,7 @@ fix_bitcoin_cli() {
     username=${username:-bitcoin}
   fi
 
-  user_home=$(get_home_directory "$username" 2>/dev/null || true)
+  user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
     return 1
@@ -780,15 +856,25 @@ set_datum_log_level() {
     username=${username:-bitcoin}
   fi
 
-  user_home=$(get_home_directory "$username" 2>/dev/null || true)
+  user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
     return 1
   fi
 
   cfg_path="$user_home/datum/datum_gateway_config.json"
-  if [ ! -f "$cfg_path" ]; then
+  cfg_path=$(printf "%s" "$cfg_path" | tr -d '\r')
+  if [ ! -e "$cfg_path" ]; then
     echo -e "${RED}FAIL${NC}: datum config not found at $cfg_path"
+    echo "Diagnostic: listing path and parent directory:"
+    ls -ld "$cfg_path" "$(dirname "$cfg_path")" 2>/dev/null || true
+    echo "Diagnostic: raw bytes of computed path (hex):"
+    printf '%s' "$cfg_path" | od -An -t x1 -v | sed 's/^/ /'
+    return 2
+  fi
+  if [ ! -r "$cfg_path" ]; then
+    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $cfg_path"
+    ls -l "$cfg_path" 2>/dev/null || true
     return 2
   fi
 
@@ -804,6 +890,12 @@ set_datum_log_level() {
     echo -e "Current datum log level: (not set)"
   else
     echo -e "Current datum log level: $cur"
+  fi
+
+  # Ask the user if they want to change the log level before prompting
+  if ! confirm_prompt "Do you want to change the datum log level? (y/n): " "n"; then
+    echo "No changes requested. Exiting without modifying datum log level."
+    return 0
   fi
 
   # Prompt for new value with current as default
@@ -1017,6 +1109,7 @@ sync_status_monitor() {
 
 # Main menu loop
 while true; do
+  echo ""
   echo "==== OCEAN Tools Menu ===="
   echo "1) Collect logs/configs"
   echo "2) Recreate bitcoin.conf (backup + generator)"
