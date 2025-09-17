@@ -95,7 +95,14 @@ collect_logs() {
 
   # Prepare temp dir
   local tmpdir="collected_logs"
-  rm -rf "$tmpdir"
+  if [ -d "$tmpdir" ]; then
+    if confirm_prompt "Temporary collection directory '$tmpdir' already exists. Delete and start over? (y/n): " "n"; then
+      rm -rf "$tmpdir"
+    else
+      echo "Aborted by user. Collection cancelled.";
+      return 1
+    fi
+  fi
   mkdir -p "$tmpdir"
 
   # Always include current settings file
@@ -106,10 +113,48 @@ collect_logs() {
   echo -e "Warning: settings file not found at $SETTINGS_FILE"
   fi
 
-  # Static default: system logs
-  echo "Including: /var/log (glob)"
-  if [ $dry_run -eq 0 ]; then
-    cp -a /var/log/* "$tmpdir/" 2>/dev/null || true
+  # Collect recent systemd journal entries for the services we care about
+  echo "Including: recent systemd journal entries for bitcoin_knots.service and datum.service (last 200 lines)"
+  if [ $dry_run -eq 1 ]; then
+    echo "Would capture: journal-bitcoin_knots.txt (last 200 lines)"
+    echo "Would capture: journal-datum.txt (last 200 lines)"
+  else
+    # helper to capture journal for a service into the tmpdir
+    capture_journal() {
+      local svc="$1" out="$2"
+      if ! command -v journalctl >/dev/null 2>&1; then
+        printf 'WARNING: journalctl not available on this system\n' > "$out"
+        return 0
+      fi
+
+      # If root, call directly
+      if [ "$(id -u)" -eq 0 ]; then
+        journalctl -u "$svc" -n 200 --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
+        return 0
+      fi
+
+      # Try non-interactive sudo
+      if command -v sudo >/dev/null 2>&1; then
+        if sudo -n journalctl -u "$svc" -n 200 --no-pager >/dev/null 2>&1; then
+          sudo -n journalctl -u "$svc" -n 200 --no-pager > "$out" 2>/dev/null || printf '(no journal entries)\n' > "$out"
+          return 0
+        else
+          printf 'WARNING: journalctl requires elevated privileges to read %s logs. Run with sudo to collect.\n' "$svc" > "$out"
+          return 0
+        fi
+      fi
+
+      # No sudo and not root
+      printf 'WARNING: Not running as root and sudo not available; cannot read journal for %s\n' "$svc" > "$out"
+      return 0
+    }
+
+    local j1="$tmpdir/journal-bitcoin_knots.txt"
+    local j2="$tmpdir/journal-datum.txt"
+    capture_journal "bitcoin_knots.service" "$j1"
+    echo "Including: $j1"
+    capture_journal "datum.service" "$j2"
+    echo "Including: $j2"
   fi
 
   # Read configured logpath from settings.json (if available)
@@ -142,6 +187,85 @@ collect_logs() {
   echo -e "jq not found; skipping reading logpath from $SETTINGS_FILE"
   fi
 
+  # If bitcoin.conf wasn't provided in settings, fall back to common system path
+  if [ -z "${btc_conf:-}" ] && [ -f "/etc/bitcoin/bitcoin.conf" ]; then
+    btc_conf="/etc/bitcoin/bitcoin.conf"
+    echo "Including: $btc_conf"
+    if [ $dry_run -eq 0 ]; then
+      cp -a "$btc_conf" "$tmpdir/" 2>/dev/null || true
+      # Redact rpcauth in the copied bitcoin.conf
+      copied_conf="$tmpdir/$(basename "$btc_conf")"
+      if [ -f "$copied_conf" ]; then
+        sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$copied_conf" 2>/dev/null || true
+      fi
+    fi
+  fi
+
+  # Try to extract datadir from bitcoin.conf and include debug.log from there
+  if [ -n "${btc_conf:-}" ] && [ -f "$btc_conf" ]; then
+    local btc_datadir
+    btc_datadir=$(grep -E '^[[:space:]]*datadir[[:space:]]*=' "$btc_conf" 2>/dev/null | head -n1 | cut -d'=' -f2- | xargs || true)
+    if [ -n "$btc_datadir" ]; then
+      # Expand ~ if present
+      case "$btc_datadir" in
+        ~*) btc_datadir=$(eval echo "$btc_datadir") ;;
+      esac
+      if [ -d "$btc_datadir" ]; then
+        if [ $dry_run -eq 1 ]; then
+          echo "Would include: $btc_datadir/debug.log"
+        else
+          if [ -f "$btc_datadir/debug.log" ]; then
+            echo "Including: $btc_datadir/debug.log"
+            cp -a "$btc_datadir/debug.log" "$tmpdir/" 2>/dev/null || true
+          else
+            echo -e "Warning: debug.log not found in $btc_datadir"
+          fi
+        fi
+      else
+        echo -e "Warning: datadir from $btc_conf not found or not a directory: $btc_datadir"
+      fi
+    fi
+  fi
+
+  # Collect datum config and redact sensitive values, then include datum log file
+  # Prefer a path under the user's home (user.username in settings) or fallback to /home/bitcoin/datum
+  local datum_cfg_src datum_cfg_dst datum_log
+  local cfg_username
+  cfg_username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
+  if [ -n "$cfg_username" ]; then
+    datum_cfg_src="/home/$cfg_username/datum/datum_gateway_config.json"
+  else
+    datum_cfg_src="/home/bitcoin/datum/datum_gateway_config.json"
+  fi
+  if [ -f "$datum_cfg_src" ]; then
+    echo "Including: $datum_cfg_src"
+    if [ $dry_run -eq 0 ]; then
+      datum_cfg_dst="$tmpdir/$(basename "$datum_cfg_src")"
+      # Use jq to redact sensitive fields (we assume jq is available)
+      jq --arg r "<REDACTED>" '.bitcoind.rpcuser = $r | .bitcoind.rpcpassword = $r | .api.admin_password = $r' "$datum_cfg_src" > "$datum_cfg_dst" 2>/dev/null || {
+        # If jq fails for any reason, fall back to copying the file (no redaction)
+        cp -a "$datum_cfg_src" "$datum_cfg_dst" 2>/dev/null || true
+      }
+
+      # Parse logger.log_file to include datum.log (use jq)
+      datum_log=$(jq -r '.logger.log_file // empty' "$datum_cfg_src" 2>/dev/null || true)
+      if [ -n "$datum_log" ]; then
+        # Expand ~ if present
+        case "$datum_log" in
+          ~*) datum_log=$(eval echo "$datum_log") ;;
+        esac
+        if [ -f "$datum_log" ]; then
+          echo "Including: $datum_log"
+          cp -a "$datum_log" "$tmpdir/" 2>/dev/null || true
+        else
+          echo -e "Warning: datum log file referenced in config not found: $datum_log"
+        fi
+      fi
+    fi
+  else
+    echo -e "Warning: datum config not found at $datum_cfg_src"
+  fi
+
   # Include bitcoin config and data dir if set in settings
   if command -v jq >/dev/null 2>&1; then
     local btc_conf
@@ -151,6 +275,11 @@ collect_logs() {
       if [ $dry_run -eq 0 ]; then
         if [ -f "$btc_conf" ]; then
           cp -a "$btc_conf" "$tmpdir/" 2>/dev/null || true
+          # Redact rpcauth in the copied bitcoin.conf
+          copied_conf2="$tmpdir/$(basename "$btc_conf")"
+          if [ -f "$copied_conf2" ]; then
+            sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$copied_conf2" 2>/dev/null || true
+          fi
         else
           echo -e "Warning: bitcoin default_conf not found: $btc_conf"
         fi
