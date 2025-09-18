@@ -5,6 +5,39 @@
 
 source ./utils.sh
 
+# ------------------------------
+# Configurable constants (centralized)
+# ------------------------------
+JOURNAL_LINES=${JOURNAL_LINES:-200}                 # Lines of journal to capture in archives
+RECENT_JOURNAL_LINES=${RECENT_JOURNAL_LINES:-5}     # Lines of journal to show in monitor sections
+SYNC_MONITOR_INTERVAL=${SYNC_MONITOR_INTERVAL:-2}   # Seconds between monitor refreshes
+ARCHIVE_PREFIX=${ARCHIVE_PREFIX:-collected_logs}    # Base name prefix for collected archive
+DATUM_CONFIG_REL=${DATUM_CONFIG_REL:-datum/datum_gateway_config.json}
+DATUM_LOG_LEVEL_KEY=${DATUM_LOG_LEVEL_KEY:-.logger.log_level_file}
+DATUM_LOG_FILE_KEY=${DATUM_LOG_FILE_KEY:-.logger.log_file}
+
+# Standardized exit codes (document once; reuse across check functions)
+# 0 SUCCESS
+# 1 CONFIG_OR_DEP_MISSING (required config file or dependency not found)
+# 2 NOT_FOUND_OR_RESOLVE_FAILED (specific file/username/path resolution failure)
+# 3 PERMISSION_OR_UNREADABLE (unreadable / insufficient privilege)
+# 4 VALUE_MISSING_OR_INVALID (expected value absent or invalid)
+# 5 MISMATCH (comparison revealed mismatch)
+# 6 RUNTIME_ERROR (unexpected runtime failure)
+EXIT_SUCCESS=0
+EXIT_CONFIG_OR_DEP_MISSING=1
+EXIT_RESOLVE_FAILED=2
+EXIT_UNREADABLE=3
+EXIT_VALUE_INVALID=4
+EXIT_MISMATCH=5
+EXIT_RUNTIME_ERROR=6
+# Global dependency guard (fail fast if jq missing; many functions rely on it).
+if ! command -v jq >/dev/null 2>&1; then
+  echo -e "${RED}FATAL${NC}: 'jq' is required but not installed or not in PATH. Please install jq before using this script." >&2
+  exit $EXIT_CONFIG_OR_DEP_MISSING
+fi
+
+
 # Wrapper to return a sanitized user home directory path suitable for
 # command-substitution. Some callers previously did `get_home_directory | tail -n1`
 # to avoid friendly log lines being captured. Centralize that here so all callers
@@ -42,6 +75,176 @@ bytes_to_human() {
     value=$(awk "BEGIN {printf \"%.2f\", $bytes/1024}")
   fi
   printf "%s %s" "$value" "$unit"
+}
+
+# ------------------------------
+# Helper consolidation functions
+# ------------------------------
+
+# Hidden self-test (option 99)
+self_test_helpers() {
+  echo -e "Running self-test of helper invariants..."
+  local failures=0
+
+  # jq presence (should be ensured by global guard)
+  if command -v jq >/dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC}: jq present"
+  else
+    echo -e "${RED}FAIL${NC}: jq missing despite global guard"
+    failures=$((failures+1))
+  fi
+
+  # bitcoin.conf resolution
+  if conf=$(resolve_bitcoin_conf 2>/dev/null); then
+    echo -e "${GREEN}PASS${NC}: resolve_bitcoin_conf -> $conf"
+  else
+    echo -e "${YELLOW}WARN${NC}: resolve_bitcoin_conf could not locate bitcoin.conf"
+  fi
+
+  # datum config resolution
+  if dcfg=$(resolve_datum_config_path 2>/dev/null); then
+    echo -e "${GREEN}PASS${NC}: resolve_datum_config_path -> $dcfg"
+    ensure_file_present_readable "$dcfg" "datum config" || failures=$((failures+1))
+  else
+    echo -e "${YELLOW}WARN${NC}: resolve_datum_config_path could not resolve (username unset or file missing)"
+  fi
+
+  # Redaction test
+  local tmpbtc
+  tmpbtc=$(mktemp /tmp/mock-btc-conf.XXXXXX)
+  printf 'rpcauth=user:hashhere\nother=1\n' > "$tmpbtc"
+  redact_rpcauth_inplace "$tmpbtc"
+  if grep -q 'rpcauth=<REDACTED>' "$tmpbtc"; then
+    echo -e "${GREEN}PASS${NC}: redact_rpcauth_inplace"
+  else
+    echo -e "${RED}FAIL${NC}: redact_rpcauth_inplace"
+    failures=$((failures+1))
+  fi
+  rm -f "$tmpbtc" 2>/dev/null || true
+
+  # Journal capture test
+  local tmpjournal
+  tmpjournal=$(mktemp /tmp/mock-journal.XXXXXX)
+  capture_service_journal "nonexistent-service-name" 5 "$tmpjournal"
+  if [ -s "$tmpjournal" ]; then
+    echo -e "${GREEN}PASS${NC}: capture_service_journal produced output"
+  else
+    echo -e "${RED}FAIL${NC}: capture_service_journal produced empty output"
+    failures=$((failures+1))
+  fi
+  rm -f "$tmpjournal" 2>/dev/null || true
+
+  if [ $failures -eq 0 ]; then
+    echo -e "${GREEN}Self-test PASSED${NC}"
+    return $EXIT_SUCCESS
+  else
+    echo -e "${RED}Self-test FAILED ($failures failure[s])${NC}"
+    return $EXIT_RUNTIME_ERROR
+  fi
+}
+
+# Resolve configured username (silent if unset)
+resolve_username() {
+  read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true
+}
+
+# Resolve bitcoin.conf path (prefers settings, falls back to /etc/bitcoin/bitcoin.conf)
+resolve_bitcoin_conf() {
+  local btc_conf
+  btc_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
+  if [ -n "$btc_conf" ] && [ -f "$btc_conf" ]; then
+    printf '%s' "$btc_conf"
+    return 0
+  fi
+  if [ -f /etc/bitcoin/bitcoin.conf ]; then
+    printf '/etc/bitcoin/bitcoin.conf'
+    return 0
+  fi
+  return 1
+}
+
+# Extract datadir from a bitcoin.conf path
+read_bitcoin_datadir() {
+  local conf="$1" line datadir
+  [ -f "$conf" ] || return 1
+  line=$(grep -E '^[[:space:]]*datadir[[:space:]]*=' "$conf" 2>/dev/null | head -n1 | cut -d'=' -f2- || true)
+  datadir=$(echo -n "$line" | xargs)
+  [ -n "$datadir" ] || return 2
+  case "$datadir" in
+    ~*) datadir=$(eval echo "$datadir") ;;
+  esac
+  printf '%s' "$datadir"
+}
+
+# Resolve datum config path (returns empty if username missing or file absent)
+resolve_datum_config_path() {
+  local username user_home cfg
+  username=$(resolve_username)
+  [ -n "$username" ] || return 1
+  user_home=$(get_user_home "$username" 2>/dev/null || true)
+  [ -n "$user_home" ] || return 2
+  cfg="$user_home/$DATUM_CONFIG_REL"
+  cfg=$(printf '%s' "$cfg" | tr -d '\r')
+  [ -e "$cfg" ] || return 3
+  printf '%s' "$cfg"
+}
+
+# Ensure file exists, non-empty, readable. Usage: ensure_file_present_readable <path> <desc>
+# Returns: 0 ok, 1 missing, 2 empty, 3 unreadable.
+ensure_file_present_readable() {
+  local path="$1" desc="$2"
+  if [ ! -e "$path" ]; then
+    echo -e "${RED}FAIL${NC}: ${desc} not found at $path"
+    return 1
+  fi
+  echo -e "${GREEN}PASS${NC}: ${desc} found at $path"
+  if [ ! -s "$path" ]; then
+    echo -e "${RED}FAIL${NC}: ${desc} exists but is empty: $path"
+    return 2
+  fi
+  if [ ! -r "$path" ]; then
+    echo -e "${YELLOW}WARN${NC}: ${desc} exists but not readable: $path"
+    return 3
+  fi
+  return 0
+}
+
+# Redact rpcauth line in-place (idempotent)
+redact_rpcauth_inplace() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+  sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$file" 2>/dev/null || true
+}
+
+# Capture service journal to file (handles permissions, non-interactive sudo). Usage: capture_service_journal <service> <lines> <outfile>
+capture_service_journal() {
+  local svc="$1" lines="$2" out="$3"
+  if ! command -v journalctl >/dev/null 2>&1; then
+    printf 'journalctl unavailable on system\n' > "$out"
+    return 0
+  fi
+  : > "$out" || return 0
+  if [ "$(id -u)" -eq 0 ]; then
+    journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries)\n' > "$out"
+    return 0
+  fi
+  printf 'WARNING: insufficient privileges to read journal for %s\n' "$svc" > "$out"
+}
+
+# Fetch datum log file path from config (stdout) if readable
+resolve_datum_log_file() {
+  local cfg="$1" logf
+  [ -f "$cfg" ] || return 1
+  logf=$(jq -r "$DATUM_LOG_FILE_KEY // empty" "$cfg" 2>/dev/null || true)
+  [ -n "$logf" ] || return 2
+  case "$logf" in
+    ~*) logf=$(eval echo "$logf") ;;
+  esac
+  printf '%s' "$logf"
 }
 
 # Show recent journal entries for a systemd service (last 5 lines).
@@ -114,46 +317,16 @@ collect_logs() {
   fi
 
   # Collect recent systemd journal entries for the services we care about
-  echo "Including: recent systemd journal entries for bitcoin_knots.service and datum.service (last 200 lines)"
+  echo "Including: recent systemd journal entries for bitcoin_knots.service and datum.service (last ${JOURNAL_LINES} lines)"
   if [ $dry_run -eq 1 ]; then
-    echo "Would capture: journal-bitcoin_knots.txt (last 200 lines)"
-    echo "Would capture: journal-datum.txt (last 200 lines)"
+    echo "Would capture: journal-bitcoin_knots.txt (last ${JOURNAL_LINES} lines)"
+    echo "Would capture: journal-datum.txt (last ${JOURNAL_LINES} lines)"
   else
-    # helper to capture journal for a service into the tmpdir
-    capture_journal() {
-      local svc="$1" out="$2"
-      if ! command -v journalctl >/dev/null 2>&1; then
-        printf 'WARNING: journalctl not available on this system\n' > "$out"
-        return 0
-      fi
-
-      # If root, call directly
-      if [ "$(id -u)" -eq 0 ]; then
-        journalctl -u "$svc" -n 200 --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
-        return 0
-      fi
-
-      # Try non-interactive sudo
-      if command -v sudo >/dev/null 2>&1; then
-        if sudo -n journalctl -u "$svc" -n 200 --no-pager >/dev/null 2>&1; then
-          sudo -n journalctl -u "$svc" -n 200 --no-pager > "$out" 2>/dev/null || printf '(no journal entries)\n' > "$out"
-          return 0
-        else
-          printf 'WARNING: journalctl requires elevated privileges to read %s logs. Run with sudo to collect.\n' "$svc" > "$out"
-          return 0
-        fi
-      fi
-
-      # No sudo and not root
-      printf 'WARNING: Not running as root and sudo not available; cannot read journal for %s\n' "$svc" > "$out"
-      return 0
-    }
-
     local j1="$tmpdir/journal-bitcoin_knots.txt"
     local j2="$tmpdir/journal-datum.txt"
-    capture_journal "bitcoin_knots.service" "$j1"
+    capture_service_journal "bitcoin_knots.service" "$JOURNAL_LINES" "$j1"
     echo "Including: $j1"
-    capture_journal "datum.service" "$j2"
+    capture_service_journal "datum.service" "$JOURNAL_LINES" "$j2"
     echo "Including: $j2"
   fi
 
@@ -187,17 +360,17 @@ collect_logs() {
   echo -e "jq not found; skipping reading logpath from $SETTINGS_FILE"
   fi
 
-  # If bitcoin.conf wasn't provided in settings, fall back to common system path
-  if [ -z "${btc_conf:-}" ] && [ -f "/etc/bitcoin/bitcoin.conf" ]; then
-    btc_conf="/etc/bitcoin/bitcoin.conf"
+  # Resolve bitcoin.conf (settings or fallback) once
+  local resolved_btc_conf
+  if resolved_btc_conf=$(resolve_bitcoin_conf); then
+    btc_conf="$resolved_btc_conf"
+  fi
+
+  if [ -n "$btc_conf" ] && [ -f "$btc_conf" ]; then
     echo "Including: $btc_conf"
     if [ $dry_run -eq 0 ]; then
       cp -a "$btc_conf" "$tmpdir/" 2>/dev/null || true
-      # Redact rpcauth in the copied bitcoin.conf
-      copied_conf="$tmpdir/$(basename "$btc_conf")"
-      if [ -f "$copied_conf" ]; then
-        sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$copied_conf" 2>/dev/null || true
-      fi
+      redact_rpcauth_inplace "$tmpdir/$(basename "$btc_conf")"
     fi
   fi
 
@@ -266,29 +439,7 @@ collect_logs() {
     echo -e "Warning: datum config not found at $datum_cfg_src"
   fi
 
-  # Include bitcoin config and data dir if set in settings
-  if command -v jq >/dev/null 2>&1; then
-    local btc_conf
-    btc_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
-    if [ -n "$btc_conf" ]; then
-      echo "Including: $btc_conf"
-      if [ $dry_run -eq 0 ]; then
-        if [ -f "$btc_conf" ]; then
-          cp -a "$btc_conf" "$tmpdir/" 2>/dev/null || true
-          # Redact rpcauth in the copied bitcoin.conf
-          copied_conf2="$tmpdir/$(basename "$btc_conf")"
-          if [ -f "$copied_conf2" ]; then
-            sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$copied_conf2" 2>/dev/null || true
-          fi
-        else
-          echo -e "Warning: bitcoin default_conf not found: $btc_conf"
-        fi
-      fi
-    fi
-    # NOTE: bitcoin.default_data is intentionally ignored entirely and will not
-    # be read or referenced here to avoid accidental collection of large or
-    # sensitive data directories.
-  fi
+  # NOTE: bitcoin.default_data intentionally ignored to avoid large collections.
 
   # Show what would be archived in dry-run and exit
   if [ $dry_run -eq 1 ]; then
@@ -397,59 +548,22 @@ check_conf_and_data_permissions() {
 # Check that datum_gateway_config.json has coinbase_tag_secondary set
 check_coinbase_tag_secondary() {
   echo -e "Checking datum_gateway_config.json for coinbase_tag_secondary..."
-  # Attempt to find the datum config in the user's home directory
-  local username user_home cfg_path
-  username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
-  if [ -z "$username" ]; then
-    echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
-    return 1
+  local cfg_path
+  if ! cfg_path=$(resolve_datum_config_path); then
+    echo -e "${RED}FAIL${NC}: Unable to resolve datum config (username unset/missing file)."
+    return $EXIT_RESOLVE_FAILED
   fi
-  user_home=$(get_user_home "$username" || true)
-  if [ -z "$user_home" ]; then
-    echo -e "${YELLOW}WARN${NC}: Could not determine home directory for $username"
-    return 1
-  fi
-
-  cfg_path="$user_home/datum/datum_gateway_config.json"
-  # Sanitize path (remove common CR that can sneak in from files) and prefer a permissive existence check
-  cfg_path=$(printf "%s" "$cfg_path" | tr -d '\r')
-  if [ ! -e "$cfg_path" ]; then
-    echo -e "${RED}FAIL${NC}: datum config not found at $cfg_path"
-    echo "Diagnostic: listing path and parent directory:"
-    ls -ld "$cfg_path" "$(dirname "$cfg_path")" 2>/dev/null || true
-    echo "Diagnostic: raw bytes of computed path (hex):"
-    printf '%s' "$cfg_path" | od -An -t x1 -v | sed 's/^/ /'
-    return 2
-  fi
-  # File exists - report that we found it
-  echo -e "${GREEN}PASS${NC}: datum config found at $cfg_path"
-  # Ensure file is not empty
-  if [ ! -s "$cfg_path" ]; then
-    echo -e "${RED}FAIL${NC}: datum config exists but is empty: $cfg_path"
-    ls -l "$cfg_path" 2>/dev/null || true
-    return 2
-  fi
-  if [ ! -r "$cfg_path" ]; then
-    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $cfg_path"
-    ls -l "$cfg_path" 2>/dev/null || true
-    return 2
-  fi
-
-  if ! command -v jq >/dev/null 2>&1; then
-    echo -e "${YELLOW}WARN${NC}: jq not available; cannot parse $cfg_path"
-    return 3
-  fi
-
+  ensure_file_present_readable "$cfg_path" "datum config" || {
+    return $EXIT_RESOLVE_FAILED
+  }
   local val
-  # coinbase_tag_secondary lives under the "mining" object in datum config
   val=$(jq -r '.mining.coinbase_tag_secondary // empty' "$cfg_path" 2>/dev/null || true)
   if [ -n "$val" ]; then
     echo -e "${GREEN}PASS${NC}: coinbase_tag_secondary is set to '$val' in $cfg_path"
-    return 0
-  else
-    echo -e "${RED}FAIL${NC}: coinbase_tag_secondary is missing or empty in $cfg_path"
-    return 4
+    return $EXIT_SUCCESS
   fi
+  echo -e "${RED}FAIL${NC}: coinbase_tag_secondary is missing or empty in $cfg_path"
+  return $EXIT_VALUE_INVALID
 }
 
 
@@ -502,47 +616,22 @@ check_rpc_credentials() {
 check_datum_rpc_match() {
   echo -e "Checking datum RPC credentials match bitcoind configuration..."
 
-  # Determine bitcoin.conf path
-  local btc_conf
-  btc_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
-  if [ -z "$btc_conf" ] || [ ! -f "$btc_conf" ]; then
-    echo -e "${RED}FAIL${NC}: bitcoin.default_conf not found or not configured ($btc_conf)"
-    return 1
+  local btc_conf datum_cfg username user_home
+  if ! btc_conf=$(resolve_bitcoin_conf); then
+    echo -e "${RED}FAIL${NC}: Could not resolve bitcoin.conf (neither settings nor /etc/bitcoin/bitcoin.conf)"
+    return $EXIT_RESOLVE_FAILED
   fi
-
-  # Determine datum config path
-  local username user_home datum_cfg
-  username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
-  if [ -z "$username" ]; then
-    echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
-    return 2
+  datum_cfg=$(resolve_datum_config_path 2>/dev/null || true)
+  if [ -z "$datum_cfg" ]; then
+    echo -e "${RED}FAIL${NC}: datum config could not be resolved (missing username / file)."
+    return $EXIT_RESOLVE_FAILED
   fi
-  user_home=$(get_user_home "$username" || true)
-  if [ -z "$user_home" ]; then
-    echo -e "${YELLOW}WARN${NC}: Could not determine home directory for $username"
-    return 2
-  fi
-  datum_cfg="$user_home/datum/datum_gateway_config.json"
-  datum_cfg=$(printf "%s" "$datum_cfg" | tr -d '\r')
-  if [ ! -e "$datum_cfg" ]; then
-    echo -e "${RED}FAIL${NC}: datum config not found at $datum_cfg"
-    echo "Diagnostic: listing path and parent directory:"
-    ls -ld "$datum_cfg" "$(dirname "$datum_cfg")" 2>/dev/null || true
-    echo "Diagnostic: raw bytes of computed path (hex):"
-    printf '%s' "$datum_cfg" | od -An -t x1 -v | sed 's/^/ /'
-    return 3
-  fi
-  if [ ! -r "$datum_cfg" ]; then
-    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $datum_cfg"
-    ls -l "$datum_cfg" 2>/dev/null || true
-    return 3
-  fi
+  # Pull the username & home only if needed for rpcinfo.bin
+  username=$(resolve_username)
+  user_home=$(get_user_home "$username" 2>/dev/null || true)
 
   # Require jq to parse datum config
-  if ! command -v jq >/dev/null 2>&1; then
-    echo -e "${YELLOW}WARN${NC}: jq not installed; cannot parse $datum_cfg"
-    return 4
-  fi
+  # jq guaranteed by global guard
 
   # Extract values
   local datum_user datum_pass
@@ -633,9 +722,9 @@ check_datum_rpc_match() {
   fi
 
   if [ $pass -eq 0 ]; then
-    return 0
+    return $EXIT_SUCCESS
   else
-    return 5
+    return $EXIT_MISMATCH
   fi
 }
 
@@ -967,6 +1056,9 @@ set_datum_log_level() {
   echo -e "Setting datum log level in datum_gateway_config.json..."
 
   # Mapping table
+
+
+
   echo "Log level mapping:"
   echo "0  all"
   echo "1  debug"
@@ -977,35 +1069,31 @@ set_datum_log_level() {
   echo
 
   # Locate datum config
-  local username user_home cfg_path
-  username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
-  if [ -z "$username" ]; then
-    echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
-    read -p "Enter the username that owns the datum installation: " username
-    username=${username:-bitcoin}
+  local cfg_path username
+  cfg_path=$(resolve_datum_config_path 2>/dev/null || true)
+  if [ -z "$cfg_path" ]; then
+    # Fallback interactive prompt for legacy behaviour
+    username=$(resolve_username)
+    if [ -z "$username" ]; then
+      echo -e "${YELLOW}WARN${NC}: user.username not set in settings; prompting."
+      read -p "Enter the username that owns the datum installation: " username
+      username=${username:-bitcoin}
+      local user_home
+      user_home=$(get_user_home "$username" 2>/dev/null || true)
+      if [ -z "$user_home" ]; then
+        echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
+        return 1
+      fi
+      cfg_path="$user_home/$DATUM_CONFIG_REL"
+    else
+      # Attempt direct construction even if not yet present
+      local user_home
+      user_home=$(get_user_home "$username" 2>/dev/null || true)
+      cfg_path="$user_home/$DATUM_CONFIG_REL"
+    fi
   fi
-
-  user_home=$(get_user_home "$username" || true)
-  if [ -z "$user_home" ]; then
-    echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
-    return 1
-  fi
-
-  cfg_path="$user_home/datum/datum_gateway_config.json"
-  cfg_path=$(printf "%s" "$cfg_path" | tr -d '\r')
-  if [ ! -e "$cfg_path" ]; then
-    echo -e "${RED}FAIL${NC}: datum config not found at $cfg_path"
-    echo "Diagnostic: listing path and parent directory:"
-    ls -ld "$cfg_path" "$(dirname "$cfg_path")" 2>/dev/null || true
-    echo "Diagnostic: raw bytes of computed path (hex):"
-    printf '%s' "$cfg_path" | od -An -t x1 -v | sed 's/^/ /'
-    return 2
-  fi
-  if [ ! -r "$cfg_path" ]; then
-    echo -e "${YELLOW}WARN${NC}: datum config exists but is not readable by this process: $cfg_path"
-    ls -l "$cfg_path" 2>/dev/null || true
-    return 2
-  fi
+  cfg_path=$(printf '%s' "$cfg_path" | tr -d '\r')
+  ensure_file_present_readable "$cfg_path" "datum config" || return $EXIT_RESOLVE_FAILED
 
   if ! command -v jq >/dev/null 2>&1; then
     echo -e "${RED}FAIL${NC}: jq is required to modify $cfg_path. Please install jq and retry."
@@ -1024,7 +1112,7 @@ set_datum_log_level() {
   # Ask the user if they want to change the log level before prompting
   if ! confirm_prompt "Do you want to change the datum log level? (y/n): " "n"; then
     echo "No changes requested. Exiting without modifying datum log level."
-    return 0
+  return $EXIT_SUCCESS
   fi
 
   # Prompt for new value with current as default
@@ -1035,12 +1123,12 @@ set_datum_log_level() {
   # Validate
   if ! [[ "$new" =~ ^[0-5]$ ]]; then
     echo -e "${RED}FAIL${NC}: Invalid log level: $new. Must be 0-5."
-    return 4
+  return $EXIT_VALUE_INVALID
   fi
 
   if [ "$new" = "$cur" ]; then
     echo -e "${YELLOW}WARN${NC}: New level is the same as the current level ($cur). No changes made."
-    return 0
+  return $EXIT_SUCCESS
   fi
 
   # Confirm change with the user showing explicit before/after
@@ -1071,12 +1159,12 @@ set_datum_log_level() {
     else
       echo -e "${RED}FAIL${NC}: Failed to move updated config into place"
       [ -f "$tmpfile" ] && rm -f "$tmpfile"
-      return 5
+  return $EXIT_RUNTIME_ERROR
     fi
   else
     echo -e "${RED}FAIL${NC}: Failed to update $cfg_path (jq error)"
     [ -f "$tmpfile" ] && rm -f "$tmpfile"
-    return 5
+  return $EXIT_RUNTIME_ERROR
   fi
 
   # Notify about restart
@@ -1231,7 +1319,7 @@ sync_status_monitor() {
     clear
     printf '%s' "$buffer"
 
-    sleep 2
+    sleep "$SYNC_MONITOR_INTERVAL"
   done
 }
 
@@ -1267,6 +1355,7 @@ while true; do
   10) set_datum_log_level ;;
   12) sync_status_monitor ;;
   11) break ;;
+  99) self_test_helpers ;;
     *) echo "Invalid option." ;;
   esac
 done
