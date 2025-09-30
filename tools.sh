@@ -24,6 +24,7 @@ DATUM_LOG_FILE_KEY=${DATUM_LOG_FILE_KEY:-.logger.log_file}
 # 4 VALUE_MISSING_OR_INVALID (expected value absent or invalid)
 # 5 MISMATCH (comparison revealed mismatch)
 # 6 RUNTIME_ERROR (unexpected runtime failure)
+# 7 ABORTED (user cancelled an action intentionally)
 EXIT_SUCCESS=0
 EXIT_CONFIG_OR_DEP_MISSING=1
 EXIT_RESOLVE_FAILED=2
@@ -31,10 +32,27 @@ EXIT_UNREADABLE=3
 EXIT_VALUE_INVALID=4
 EXIT_MISMATCH=5
 EXIT_RUNTIME_ERROR=6
+EXIT_ABORTED=7
 # Global dependency guard (fail fast if jq missing; many functions rely on it).
 if ! command -v jq >/dev/null 2>&1; then
   echo -e "${RED}FATAL${NC}: 'jq' is required but not installed or not in PATH. Please install jq before using this script." >&2
   exit $EXIT_CONFIG_OR_DEP_MISSING
+fi
+
+# Require an actual root shell (not sudo invocation) similar to main.sh safeguards
+require_root_shell() {
+  echo -e "${RED}This script must be run from a root login shell, not via 'sudo <script>'.${NC}"
+  echo "Switch to a root shell with one of:"
+  echo "  sudo -i"
+  echo "  su -"
+  echo "Then rerun tools.sh from that shell."
+  exit $EXIT_RUNTIME_ERROR
+}
+
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+  require_root_shell
+elif [ "$(id -u)" -ne 0 ]; then
+  require_root_shell
 fi
 
 
@@ -216,7 +234,7 @@ redact_rpcauth_inplace() {
   sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$file" 2>/dev/null || true
 }
 
-# Capture service journal to file (handles permissions, non-interactive sudo). Usage: capture_service_journal <service> <lines> <outfile>
+# Capture service journal to file (requires root). Usage: capture_service_journal <service> <lines> <outfile>
 capture_service_journal() {
   local svc="$1" lines="$2" out="$3"
   if ! command -v journalctl >/dev/null 2>&1; then
@@ -224,15 +242,7 @@ capture_service_journal() {
     return 0
   fi
   : > "$out" || return 0
-  if [ "$(id -u)" -eq 0 ]; then
-    journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
-    return 0
-  fi
-  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo -n journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries)\n' > "$out"
-    return 0
-  fi
-  printf 'WARNING: insufficient privileges to read journal for %s\n' "$svc" > "$out"
+  journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
 }
 
 # Fetch datum log file path from config (stdout) if readable
@@ -264,21 +274,8 @@ show_recent_journal() {
     return 0
   fi
 
-  # Try non-interactive sudo if available
-  if command -v sudo >/dev/null 2>&1; then
-    # -n makes sudo fail rather than prompt; if it fails, fall back to instruction
-    if sudo -n journalctl -u "$svc" -n 5 --no-pager >/dev/null 2>&1; then
-      sudo -n journalctl -u "$svc" -n 5 --no-pager 2>/dev/null || echo "(no journal entries)"
-      return 0
-    else
-      echo -e "${YELLOW}WARN${NC}: journalctl requires elevated privileges to read $svc logs. Run with sudo to view logs."
-      return 0
-    fi
-  fi
-
-  # No sudo available and not root
-  echo -e "${YELLOW}WARN${NC}: Not running as root and sudo not available; cannot read system journal for $svc"
-  echo "Try: sudo journalctl -u $svc -n 5 --no-pager"
+  echo -e "${YELLOW}WARN${NC}: journalctl requires elevated privileges to read $svc logs. Run tools.sh from a root shell to view output."
+  echo "If you need to check manually: journalctl -u $svc -n 5 --no-pager"
   return 0
 }
 
@@ -298,15 +295,19 @@ collect_logs() {
 
   # Prepare temp dir
   local tmpdir="collected_logs"
+  local btc_conf=""
   if [ -d "$tmpdir" ]; then
     if confirm_prompt "Temporary collection directory '$tmpdir' already exists. Delete and start over? (y/n): " "n"; then
       rm -rf "$tmpdir"
     else
       echo "Aborted by user. Collection cancelled.";
-      return 1
+      return $EXIT_ABORTED
     fi
   fi
-  mkdir -p "$tmpdir"
+  if ! mkdir -p "$tmpdir"; then
+    echo -e "${RED}FAIL${NC}: Unable to create temporary directory $tmpdir"
+    return $EXIT_RUNTIME_ERROR
+  fi
 
   # Always include current settings file
   if [ -f "$SETTINGS_FILE" ]; then
@@ -415,7 +416,7 @@ collect_logs() {
     if [ $dry_run -eq 0 ]; then
       datum_cfg_dst="$tmpdir/$(basename "$datum_cfg_src")"
       # Use jq to redact sensitive fields (we assume jq is available)
-      jq --arg r "<REDACTED>" '.bitcoind.rpcuser = $r | .bitcoind.rpcpassword = $r | .api.admin_password = $r' "$datum_cfg_src" > "$datum_cfg_dst" 2>/dev/null || {
+      jq --arg r "<REDACTED>" '.bitcoind.rpcuser = $r | .bitcoind.rpcpassword = $r | .api.admin_password = $r | .mining.pool_address = $r' "$datum_cfg_src" > "$datum_cfg_dst" 2>/dev/null || {
         # If jq fails for any reason, fall back to copying the file (no redaction)
         cp -a "$datum_cfg_src" "$datum_cfg_dst" 2>/dev/null || true
       }
@@ -447,7 +448,7 @@ collect_logs() {
     echo "Dry-run complete. Files/directories that would be included (top-level):"
     ls -1A "$tmpdir" 2>/dev/null || echo "(no files collected)"
     rm -rf "$tmpdir"
-    return 0
+    return $EXIT_SUCCESS
   fi
 
   # Create timestamped archive name using hostname and YYYYMMDD (UTC)
@@ -461,13 +462,14 @@ collect_logs() {
   local targzname="${base_name}.tar.gz"
   if tar -czf "$targzname" "$tmpdir" > /dev/null 2>&1; then
     rm -rf "$tmpdir"
-  echo -e "Logs and configs collected into $targzname."
+    echo -e "Logs and configs collected into $targzname."
     COLLECTED_LOG_ARCHIVE="$targzname"
     export COLLECTED_LOG_ARCHIVE
-    return 0
+    return $EXIT_SUCCESS
   fi
 
   echo -e "Failed to create archive for collected logs. Temporary files are in $tmpdir"
+  return $EXIT_RUNTIME_ERROR
 }
 
 
@@ -480,7 +482,7 @@ recreate_bitcoin_conf() {
   conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
   if [ -z "$conf" ]; then
     echo -e "${RED}FAIL${NC}: bitcoin.default_conf not set in $SETTINGS_FILE"
-    return 1
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
 
   if [ -f "$conf" ]; then
@@ -500,14 +502,14 @@ recreate_bitcoin_conf() {
     ./bitcoin-conf-generator.sh
     if [ $? -eq 0 ]; then
       echo -e "${GREEN}PASS${NC}: bitcoin-conf-generator.sh completed successfully"
-      return 0
+      return $EXIT_SUCCESS
     else
       echo -e "${RED}FAIL${NC}: bitcoin-conf-generator.sh exited with error"
-      return 2
+      return $EXIT_RUNTIME_ERROR
     fi
   else
     echo -e "${RED}FAIL${NC}: bitcoin-conf-generator.sh not found or not executable in $(pwd)"
-    return 3
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
 }
 
@@ -574,19 +576,21 @@ check_rpc_credentials() {
   conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
   if [ -z "$conf" ]; then
     echo -e "${RED}FAIL${NC}: bitcoin.default_conf not configured in $SETTINGS_FILE"
-    return 1
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
   if [ ! -f "$conf" ]; then
     echo -e "${RED}FAIL${NC}: bitcoin.conf not found at $conf"
-    return 2
+    return $EXIT_RESOLVE_FAILED
   fi
 
   # Look for rpcuser/rpcpassword or rpcauth
-  local rpcuser rpcpass rpcauth rpcport
+  local rpcuser rpcpass rpcauth rpcport status
   rpcuser=$(grep -E '^[[:space:]]*rpcuser[[:space:]]*=' "$conf" 2>/dev/null | head -n1 | cut -d'=' -f2- | xargs || true)
   rpcpass=$(grep -E '^[[:space:]]*rpcpassword[[:space:]]*=' "$conf" 2>/dev/null | head -n1 | cut -d'=' -f2- | xargs || true)
   rpcauth=$(grep -E '^[[:space:]]*rpcauth[[:space:]]*=' "$conf" 2>/dev/null | head -n1 || true)
   rpcport=$(grep -E '^[[:space:]]*rpcport[[:space:]]*=' "$conf" 2>/dev/null | head -n1 | cut -d'=' -f2- | xargs || true)
+
+  status=$EXIT_SUCCESS
 
   if [ -n "$rpcauth" ]; then
     echo -e "${GREEN}PASS${NC}: rpcauth entry present in $conf"
@@ -594,21 +598,28 @@ check_rpc_credentials() {
     echo -e "${GREEN}PASS${NC}: rpcuser and rpcpassword found in $conf"
   else
     echo -e "${RED}FAIL${NC}: No rpcuser/rpcpassword or rpcauth found in $conf"
+    status=$EXIT_VALUE_INVALID
   fi
 
   # Try a quick connectivity check using bitcoin-cli if available
   if command -v bitcoin-cli >/dev/null 2>&1; then
     if bitcoin-cli -conf="$conf" getblockchaininfo >/dev/null 2>&1; then
       echo -e "${GREEN}PASS${NC}: bitcoin-cli RPC call succeeded (bitcoind reachable)"
-      return 0
+      return $status
     else
       echo -e "${RED}FAIL${NC}: bitcoin-cli RPC call failed (bitcoind may be down or credentials incorrect)"
-      return 3
+      if [ "$status" -lt "$EXIT_RUNTIME_ERROR" ]; then
+        status=$EXIT_RUNTIME_ERROR
+      fi
     fi
   else
     echo -e "${YELLOW}WARN${NC}: bitcoin-cli not installed; skipping live RPC connectivity test"
-    return 4
+    if [ "$status" -lt "$EXIT_CONFIG_OR_DEP_MISSING" ]; then
+      status=$EXIT_CONFIG_OR_DEP_MISSING
+    fi
   fi
+
+  return $status
 }
 
 
@@ -736,7 +747,7 @@ check_default_data_free_space() {
   default_data=$(read_json_value "bitcoin.default_data" "$SETTINGS_FILE" 2>/dev/null || true)
   if [ -z "$default_data" ]; then
     echo -e "${YELLOW}WARN${NC}: bitcoin.default_data not set in $SETTINGS_FILE"
-    return 2
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
 
   # If target doesn't exist, use its parent directory for df
@@ -748,7 +759,7 @@ check_default_data_free_space() {
 
   if ! command -v df >/dev/null 2>&1; then
     echo -e "${YELLOW}WARN${NC}: df utility not available; cannot determine free space for $default_data"
-    return 3
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
 
   avail_kb=$(df -Pk "$target" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)
@@ -761,15 +772,15 @@ check_default_data_free_space() {
 
   if [ "$avail_kb" -eq 0 ]; then
     echo -e "${YELLOW}WARN${NC}: Could not determine free space on the volume hosting $default_data"
-    return 4
+    return $EXIT_RUNTIME_ERROR
   fi
 
   if [ "$avail_mb" -lt "$threshold_mb" ]; then
     echo -e "${YELLOW}WARN${NC}: Available free space on volume hosting $default_data is ${avail_mb}MB (recommended >= ${threshold_mb}MB)."
-    return 1
+    return $EXIT_VALUE_INVALID
   else
     echo -e "${GREEN}PASS${NC}: Available space on volume hosting $default_data: ${avail_mb}MB"
-    return 0
+    return $EXIT_SUCCESS
   fi
 }
 
@@ -780,7 +791,7 @@ apply_service_retooling() {
 
   # Find existing systemd service file for bitcoin_knots or bitcoin
   local candidates=( "/etc/systemd/system/bitcoin_knots.service" "/usr/lib/systemd/system/bitcoin_knots.service" "/lib/systemd/system/bitcoin_knots.service" "/etc/systemd/system/bitcoin.service" "/usr/lib/systemd/system/bitcoin.service" "/lib/systemd/system/bitcoin.service" )
-  local svc_path=""
+  local svc_path="" svc_unit="" was_active=0 svc_state="unknown" restart_code=$EXIT_SUCCESS
   for p in "${candidates[@]}"; do
     if [ -f "$p" ]; then
       svc_path="$p"
@@ -800,7 +811,15 @@ apply_service_retooling() {
     else
       echo "Skipping service generation.";
     fi
-    return 0
+    return $EXIT_SUCCESS
+  fi
+
+  svc_unit=$(basename "$svc_path")
+  if command -v systemctl >/dev/null 2>&1; then
+    svc_state=$(systemctl is-active "$svc_unit" 2>/dev/null || true)
+    if [ "$svc_state" = "active" ] || [ "$svc_state" = "activating" ]; then
+      was_active=1
+    fi
   fi
 
   echo "Found existing service file: $svc_path"
@@ -827,7 +846,7 @@ apply_service_retooling() {
 
   # Create temp modified file
   local tmpfile="${svc_path}.tmp"
-  cp "$svc_path" "$tmpfile" 2>/dev/null || { echo -e "${RED}FAIL${NC}: Could not copy service file to temp file."; return 1; }
+  cp "$svc_path" "$tmpfile" 2>/dev/null || { echo -e "${RED}FAIL${NC}: Could not copy service file to temp file."; return $EXIT_RUNTIME_ERROR; }
 
   # Replace ExecStart lines with desired exec (account for multiple ExecStart lines)
   # Remove continuation lines that start with a dash
@@ -900,13 +919,47 @@ apply_service_retooling() {
       fi
     else
       echo -e "${RED}FAIL${NC}: Failed to copy modified service into place (permissions?). Temporary file retained at $tmpfile"
-      return 1
+      return $EXIT_RUNTIME_ERROR
     fi
   else
     echo "Aborted applying changes; temporary modified file left at $tmpfile"
+    return $EXIT_ABORTED
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    if [ $was_active -eq 1 ]; then
+      echo
+      echo "Service $svc_unit was ${svc_state:-active} before changes."
+      if confirm_prompt "Restart $svc_unit now to apply changes? (y/n): " "y"; then
+        if systemctl restart "$svc_unit" 2>/dev/null; then
+          echo -e "${GREEN}PASS${NC}: $svc_unit restarted successfully."
+        else
+          echo -e "${RED}FAIL${NC}: Failed to restart $svc_unit automatically. Please run 'systemctl restart $svc_unit' manually."
+          restart_code=$EXIT_RUNTIME_ERROR
+        fi
+      else
+        echo "To apply changes later, run: systemctl restart $svc_unit"
+      fi
+    else
+      echo
+      echo "Service $svc_unit was not active before changes (state: ${svc_state:-unknown})."
+      if confirm_prompt "Attempt to restart $svc_unit anyway? (y/n): " "n"; then
+        if systemctl restart "$svc_unit" 2>/dev/null; then
+          echo -e "${GREEN}PASS${NC}: $svc_unit restarted successfully."
+        else
+          echo -e "${RED}FAIL${NC}: Failed to restart $svc_unit automatically. Please run 'systemctl restart $svc_unit' manually."
+          restart_code=$EXIT_RUNTIME_ERROR
+        fi
+      else
+        echo "Skipping restart because the service was not active prior to changes."
+      fi
+    fi
+  else
+    echo -e "${YELLOW}WARN${NC}: systemctl not available; cannot restart $svc_unit automatically."
   fi
 
   echo -e "Service retooling completed."
+  return $restart_code
 }
 
 
@@ -914,7 +967,7 @@ fix_bitcoin_cli() {
   echo -e "Checking and (optionally) fixing bitcoin-cli datadir symlink..."
 
   # Determine user and paths
-  local username user_home bitcoin_dir default_data ts backup_target
+  local username user_home bitcoin_dir default_data ts backup_target backup_source=""
   username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
   if [ -z "$username" ]; then
     echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
@@ -925,7 +978,114 @@ fix_bitcoin_cli() {
   user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
-    return 1
+    return $EXIT_RESOLVE_FAILED
+  fi
+
+  # Ensure the bitcoin-cli binary is available in expected post-build locations
+  local cli_source="" cli_dest_dir cli_dest tmp_cli system_cli_dest system_stage candidate
+  cli_dest_dir="$user_home/bitcoin/bin"
+  cli_dest="$cli_dest_dir/bitcoin-cli"
+  system_cli_dest="/usr/local/bin/bitcoin-cli"
+
+  if command -v bitcoin-cli >/dev/null 2>&1; then
+    candidate=$(command -v bitcoin-cli)
+    if [ -x "$candidate" ]; then
+      cli_source="$candidate"
+    fi
+  fi
+
+  if [ -z "$cli_source" ]; then
+    for candidate in "$system_cli_dest" \
+      "/usr/bin/bitcoin-cli" \
+      "$cli_dest" \
+      "$user_home/bitcoin/bin/bitcoin-cli" \
+      "$user_home/bitcoin/src/bitcoin-cli" \
+      "$user_home/bitcoin/src/bitcoin/bitcoin-cli" \
+      "$user_home/bitcoin/src/bitcoin/build/bin/bitcoin-cli"; do
+      if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        cli_source="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$cli_source" ] && [ -d "$user_home/bitcoin" ]; then
+    candidate=$(find "$user_home/bitcoin" -maxdepth 5 -type f -name bitcoin-cli 2>/dev/null | head -n1)
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      cli_source="$candidate"
+    fi
+  fi
+
+  if [ -n "$cli_source" ] && [ -x "$cli_source" ]; then
+    if ! mkdir -p "$cli_dest_dir"; then
+      echo -e "${RED}FAIL${NC}: Unable to create $cli_dest_dir for bitcoin-cli copy"
+      return $EXIT_RUNTIME_ERROR
+    fi
+    chown "$username:$username" "$cli_dest_dir" 2>/dev/null || true
+
+    if [ "$cli_source" = "$cli_dest" ]; then
+      echo -e "${GREEN}PASS${NC}: bitcoin-cli already present at $cli_dest"
+    elif [ -x "$cli_dest" ] && cmp -s "$cli_source" "$cli_dest" 2>/dev/null; then
+      echo -e "${GREEN}PASS${NC}: bitcoin-cli in $cli_dest_dir is up to date"
+    else
+      tmp_cli=$(mktemp "$cli_dest_dir/.bitcoin-cli.XXXXXX") || {
+        echo -e "${RED}FAIL${NC}: Unable to stage bitcoin-cli copy in $cli_dest_dir"
+        return $EXIT_RUNTIME_ERROR
+      }
+
+      if cp "$cli_source" "$tmp_cli" 2>/dev/null; then
+        chmod 755 "$tmp_cli" 2>/dev/null || true
+        if mv "$tmp_cli" "$cli_dest" 2>/dev/null; then
+          chown "$username:$username" "$cli_dest" 2>/dev/null || true
+          echo -e "${GREEN}PASS${NC}: bitcoin-cli copied to $cli_dest"
+        else
+          rm -f "$tmp_cli" 2>/dev/null || true
+          echo -e "${RED}FAIL${NC}: Failed to move staged bitcoin-cli into $cli_dest"
+          return $EXIT_RUNTIME_ERROR
+        fi
+      else
+        rm -f "$tmp_cli" 2>/dev/null || true
+        echo -e "${RED}FAIL${NC}: Failed to copy bitcoin-cli from $cli_source"
+        return $EXIT_RUNTIME_ERROR
+      fi
+    fi
+  else
+    echo -e "${YELLOW}WARN${NC}: bitcoin-cli binary not found; skipping repair of $cli_dest"
+  fi
+
+  # Ensure /usr/local/bin/bitcoin-cli exists and matches the best available source
+  if [ -z "$cli_source" ] && [ -x "$cli_dest" ]; then
+    cli_source="$cli_dest"
+  fi
+
+  if [ -n "$cli_source" ] && [ -x "$cli_source" ]; then
+    if [ "$cli_source" = "$system_cli_dest" ]; then
+      echo -e "${GREEN}PASS${NC}: bitcoin-cli already present at $system_cli_dest"
+    elif [ -x "$system_cli_dest" ] && cmp -s "$cli_source" "$system_cli_dest" 2>/dev/null; then
+      echo -e "${GREEN}PASS${NC}: bitcoin-cli in /usr/local/bin is up to date"
+    else
+      system_stage=$(mktemp /tmp/bitcoin-cli.XXXXXX) || {
+        echo -e "${RED}FAIL${NC}: Unable to stage bitcoin-cli for /usr/local/bin install"
+        return $EXIT_RUNTIME_ERROR
+      }
+      if cp "$cli_source" "$system_stage" 2>/dev/null; then
+        chmod 755 "$system_stage" 2>/dev/null || true
+        if mv "$system_stage" "$system_cli_dest" 2>/dev/null; then
+          chown root:root "$system_cli_dest" 2>/dev/null || true
+          echo -e "${GREEN}PASS${NC}: bitcoin-cli copied to $system_cli_dest"
+        else
+          rm -f "$system_stage" 2>/dev/null || true
+          echo -e "${RED}FAIL${NC}: Failed to move staged bitcoin-cli into $system_cli_dest"
+          return $EXIT_RUNTIME_ERROR
+        fi
+      else
+        rm -f "$system_stage" 2>/dev/null || true
+        echo -e "${RED}FAIL${NC}: Failed to copy bitcoin-cli from $cli_source for system install"
+        return $EXIT_RUNTIME_ERROR
+      fi
+    fi
+  else
+    echo -e "${YELLOW}WARN${NC}: No bitcoin-cli binary available to repair /usr/local/bin/bitcoin-cli"
   fi
 
   bitcoin_dir="$user_home/.bitcoin"
@@ -947,6 +1107,11 @@ fix_bitcoin_cli() {
       echo -e "${YELLOW}WARN${NC}: $bitcoin_dir is a symlink but target could not be resolved"
     fi
   elif [ -d "$bitcoin_dir" ]; then
+    if [ -d "$bitcoin_dir/.wallets" ] || [ -d "$bitcoin_dir/.wallet" ]; then
+      echo -e "${RED}FAIL${NC}: $bitcoin_dir contains wallet data (.wallets/.wallet); refusing to modify to avoid wallet loss."
+      echo "Handle wallet migration manually before rerunning this fix."
+      return $EXIT_ABORTED
+    fi
     echo -e "${YELLOW}WARN${NC}: $bitcoin_dir exists and is a directory (not a symlink). This may prevent bitcoin-cli from using the configured datadir by default."
   else
     echo -e "${RED}FAIL${NC}: $bitcoin_dir does not exist"
@@ -984,7 +1149,7 @@ fix_bitcoin_cli() {
 
   if ! confirm_prompt "Apply the bitcoin-cli fix (create/replace symlink at $bitcoin_dir)? (y/n): " "n"; then
     echo "Aborted. No changes made."
-    return 0
+    return $EXIT_ABORTED
   fi
 
   # Ensure we have a target to symlink to
@@ -993,7 +1158,7 @@ fix_bitcoin_cli() {
     default_data=${default_data:-}
     if [ -z "$default_data" ]; then
       echo -e "${RED}FAIL${NC}: No data directory provided; aborting." 
-      return 2
+      return $EXIT_VALUE_INVALID
     fi
   fi
 
@@ -1005,11 +1170,11 @@ fix_bitcoin_cli() {
         echo -e "${GREEN}PASS${NC}: Created $default_data"
       else
         echo -e "${RED}FAIL${NC}: Failed to create $default_data (permissions?)"
-        return 3
+        return $EXIT_RUNTIME_ERROR
       fi
     else
       echo "Aborted - target directory missing. No changes made." 
-      return 4
+      return $EXIT_ABORTED
     fi
   fi
 
@@ -1021,6 +1186,7 @@ fix_bitcoin_cli() {
     backup_target="${bitcoin_dir}.backup_${ts}"
     if mv "$bitcoin_dir" "$backup_target" 2>/dev/null; then
       echo -e "${GREEN}PASS${NC}: Backed up existing $bitcoin_dir to $backup_target"
+      backup_source="$backup_target"
     else
       echo -e "${YELLOW}WARN${NC}: Failed to back up $bitcoin_dir to $backup_target (permissions?)"
       echo "Attempting to remove $bitcoin_dir to continue..."
@@ -1028,8 +1194,28 @@ fix_bitcoin_cli() {
         echo -e "${GREEN}PASS${NC}: Removed $bitcoin_dir"
       else
         echo -e "${RED}FAIL${NC}: Could not back up or remove existing $bitcoin_dir; aborting."
-        return 5
+          return $EXIT_RUNTIME_ERROR
       fi
+    fi
+  fi
+
+  # Offer to copy blockchain data from backup into the target datadir to avoid full re-download
+  if [ -n "$backup_source" ] && [ -d "$backup_source" ] && [ ! -L "$backup_source" ]; then
+    echo
+    echo "A backup of the previous .bitcoin directory is located at $backup_source."
+    if [ -n "$(ls -A "$default_data" 2>/dev/null)" ]; then
+      echo -e "${YELLOW}WARN${NC}: $default_data already contains files; copying may overwrite existing data."
+    fi
+    if confirm_prompt "Copy the backup contents into $default_data to avoid re-downloading the chain? (y/n): " "y"; then
+      echo "Copying blockchain data; this may take several minutes..."
+      if cp -a "$backup_source/." "$default_data/" 2>/dev/null; then
+        echo -e "${GREEN}PASS${NC}: Copied blockchain data into $default_data"
+      else
+        echo -e "${RED}FAIL${NC}: Failed to copy blockchain data from $backup_source to $default_data"
+        echo "You may need to copy the files manually."
+      fi
+    else
+      echo "Skipping blockchain data copy; $default_data will remain unchanged."
     fi
   fi
 
@@ -1043,10 +1229,10 @@ fix_bitcoin_cli() {
       echo -e "${YELLOW}WARN${NC}: Could not change ownership of symlink (insufficient permissions)"
     fi
     echo -e "${GREEN}PASS${NC}: bitcoin-cli should now work without specifying --datadir when run as $username"
-    return 0
+    return $EXIT_SUCCESS
   else
     echo -e "${RED}FAIL${NC}: Failed to create symlink $bitcoin_dir -> $default_data (permissions?)"
-    return 6
+    return $EXIT_RUNTIME_ERROR
   fi
 }
 
@@ -1082,7 +1268,7 @@ set_datum_log_level() {
       user_home=$(get_user_home "$username" 2>/dev/null || true)
       if [ -z "$user_home" ]; then
         echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
-        return 1
+        return $EXIT_RESOLVE_FAILED
       fi
       cfg_path="$user_home/$DATUM_CONFIG_REL"
     else
@@ -1097,7 +1283,7 @@ set_datum_log_level() {
 
   if ! command -v jq >/dev/null 2>&1; then
     echo -e "${RED}FAIL${NC}: jq is required to modify $cfg_path. Please install jq and retry."
-    return 3
+    return $EXIT_CONFIG_OR_DEP_MISSING
   fi
 
   # Read current value
@@ -1112,7 +1298,7 @@ set_datum_log_level() {
   # Ask the user if they want to change the log level before prompting
   if ! confirm_prompt "Do you want to change the datum log level? (y/n): " "n"; then
     echo "No changes requested. Exiting without modifying datum log level."
-  return $EXIT_SUCCESS
+    return $EXIT_SUCCESS
   fi
 
   # Prompt for new value with current as default
@@ -1123,12 +1309,12 @@ set_datum_log_level() {
   # Validate
   if ! [[ "$new" =~ ^[0-5]$ ]]; then
     echo -e "${RED}FAIL${NC}: Invalid log level: $new. Must be 0-5."
-  return $EXIT_VALUE_INVALID
+    return $EXIT_VALUE_INVALID
   fi
 
   if [ "$new" = "$cur" ]; then
     echo -e "${YELLOW}WARN${NC}: New level is the same as the current level ($cur). No changes made."
-  return $EXIT_SUCCESS
+    return $EXIT_SUCCESS
   fi
 
   # Confirm change with the user showing explicit before/after
@@ -1137,7 +1323,7 @@ set_datum_log_level() {
   echo "  will be: $new"
   if ! confirm_prompt "Proceed with this change? (y/n): " "n"; then
     echo "Aborted. No changes made."
-    return 0
+    return $EXIT_ABORTED
   fi
 
   # Backup current config
@@ -1159,12 +1345,12 @@ set_datum_log_level() {
     else
       echo -e "${RED}FAIL${NC}: Failed to move updated config into place"
       [ -f "$tmpfile" ] && rm -f "$tmpfile"
-  return $EXIT_RUNTIME_ERROR
+      return $EXIT_RUNTIME_ERROR
     fi
   else
     echo -e "${RED}FAIL${NC}: Failed to update $cfg_path (jq error)"
     [ -f "$tmpfile" ] && rm -f "$tmpfile"
-  return $EXIT_RUNTIME_ERROR
+    return $EXIT_RUNTIME_ERROR
   fi
 
   # Notify about restart
@@ -1175,14 +1361,14 @@ set_datum_log_level() {
       if systemctl restart datum.service 2>/dev/null; then
         echo -e "${GREEN}PASS${NC}: datum.service restarted successfully."
       else
-        echo -e "${RED}FAIL${NC}: Failed to restart datum.service (permissions or service name?). You may run: sudo systemctl restart datum.service"
+        echo -e "${RED}FAIL${NC}: Failed to restart datum.service (permissions or service name?). Run: systemctl restart datum.service"
       fi
     else
-      echo -e "${YELLOW}WARN${NC}: systemctl not available; restart manually: sudo systemctl restart datum.service"
+      echo -e "${YELLOW}WARN${NC}: systemctl not available; restart manually: systemctl restart datum.service"
     fi
   else
     echo "To restart the service later and apply changes run:"
-    echo "  sudo systemctl restart datum.service"
+    echo "  systemctl restart datum.service"
     echo "Be aware restarting may cause miners to reconnect."
   fi
 }
@@ -1338,8 +1524,8 @@ while true; do
   echo "8) Apply service retooling"
   echo "9) Apply fix for bitcoin-cli"
   echo "10) Set datum log level"
-  echo "12) Bitcoin Chain Sync Status Monitor"
-  echo "11) Exit"
+  echo "11) Bitcoin Chain Sync Status Monitor"
+  echo "12) Exit"
   read -p "Choose an option: " choice
 
   case $choice in
@@ -1353,8 +1539,8 @@ while true; do
   8) apply_service_retooling ;;
   9) fix_bitcoin_cli ;;
   10) set_datum_log_level ;;
-  12) sync_status_monitor ;;
-  11) break ;;
+  11) sync_status_monitor ;;
+  12) break ;;
   99) self_test_helpers ;;
     *) echo "Invalid option." ;;
   esac
