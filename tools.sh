@@ -967,7 +967,7 @@ fix_bitcoin_cli() {
   echo -e "Checking and (optionally) fixing bitcoin-cli datadir symlink..."
 
   # Determine user and paths
-  local username user_home bitcoin_dir default_data ts backup_target backup_source=""
+  local username user_home bitcoin_dir default_conf default_data ts backup_target backup_source=""
   username=$(read_json_value "user.username" "$SETTINGS_FILE" 2>/dev/null || true)
   if [ -z "$username" ]; then
     echo -e "${YELLOW}WARN${NC}: user.username not set in $SETTINGS_FILE"
@@ -978,6 +978,45 @@ fix_bitcoin_cli() {
   user_home=$(get_user_home "$username" || true)
   if [ -z "$user_home" ]; then
     echo -e "${RED}FAIL${NC}: Could not determine home directory for $username"
+    return $EXIT_RESOLVE_FAILED
+  fi
+
+  default_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE" 2>/dev/null || true)
+  if [ -z "$default_conf" ]; then
+    echo -e "${RED}FAIL${NC}: bitcoin.default_conf not set in $SETTINGS_FILE; cannot proceed with bitcoin-cli repair."
+    return $EXIT_CONFIG_OR_DEP_MISSING
+  fi
+  if [ -e "$default_conf" ]; then
+    if [ -f "$default_conf" ] || [ -L "$default_conf" ]; then
+      echo -e "${GREEN}PASS${NC}: Located bitcoin.default_conf at $default_conf"
+    else
+      echo -e "${RED}FAIL${NC}: bitcoin.default_conf at $default_conf is not a file or symlink; aborting."
+      return $EXIT_VALUE_INVALID
+    fi
+  else
+    echo -e "${RED}FAIL${NC}: bitcoin.default_conf path $default_conf does not exist; update settings.json or create the file before rerunning."
+    return $EXIT_RESOLVE_FAILED
+  fi
+
+  default_data=$(read_json_value "bitcoin.default_data" "$SETTINGS_FILE" 2>/dev/null || true)
+  if [ -z "$default_data" ]; then
+    echo -e "${RED}FAIL${NC}: bitcoin.default_data not set in $SETTINGS_FILE; cannot proceed with bitcoin-cli repair."
+    return $EXIT_CONFIG_OR_DEP_MISSING
+  fi
+
+  if [ -d "$default_data" ]; then
+    echo -e "${GREEN}PASS${NC}: Located bitcoin.default_data directory at $default_data"
+  elif [ -L "$default_data" ]; then
+    local resolved_default_data
+    resolved_default_data=$(readlink -f "$default_data" 2>/dev/null || true)
+    if [ -n "$resolved_default_data" ] && [ -d "$resolved_default_data" ]; then
+      echo -e "${GREEN}PASS${NC}: bitcoin.default_data symlink resolves to $resolved_default_data"
+    else
+      echo -e "${RED}FAIL${NC}: bitcoin.default_data at $default_data is a symlink that does not resolve to a directory."
+      return $EXIT_RESOLVE_FAILED
+    fi
+  else
+    echo -e "${RED}FAIL${NC}: bitcoin.default_data path $default_data does not exist or is not a directory; fix the path and rerun."
     return $EXIT_RESOLVE_FAILED
   fi
 
@@ -1089,7 +1128,6 @@ fix_bitcoin_cli() {
   fi
 
   bitcoin_dir="$user_home/.bitcoin"
-  default_data=$(read_json_value "bitcoin.default_data" "$SETTINGS_FILE" 2>/dev/null || true)
 
   echo "--- Current state checks ---"
 
@@ -1152,32 +1190,6 @@ fix_bitcoin_cli() {
     return $EXIT_ABORTED
   fi
 
-  # Ensure we have a target to symlink to
-  if [ -z "$default_data" ]; then
-    read -p "Enter the full path of the data directory to link (e.g. /var/lib/bitcoind): " default_data
-    default_data=${default_data:-}
-    if [ -z "$default_data" ]; then
-      echo -e "${RED}FAIL${NC}: No data directory provided; aborting." 
-      return $EXIT_VALUE_INVALID
-    fi
-  fi
-
-  # If target does not exist, warn and offer to create
-  if [ ! -e "$default_data" ]; then
-    echo -e "${YELLOW}WARN${NC}: Target data directory $default_data does not exist."
-    if confirm_prompt "Create $default_data now? (y/n): " "n"; then
-      if mkdir -p "$default_data" 2>/dev/null; then
-        echo -e "${GREEN}PASS${NC}: Created $default_data"
-      else
-        echo -e "${RED}FAIL${NC}: Failed to create $default_data (permissions?)"
-        return $EXIT_RUNTIME_ERROR
-      fi
-    else
-      echo "Aborted - target directory missing. No changes made." 
-      return $EXIT_ABORTED
-    fi
-  fi
-
   # free-space check is handled by check_default_data_free_space()
 
   # Backup existing bitcoin_dir if present
@@ -1216,6 +1228,47 @@ fix_bitcoin_cli() {
       fi
     else
       echo "Skipping blockchain data copy; $default_data will remain unchanged."
+    fi
+  fi
+
+  # Ensure bitcoin.default_conf path points into the configured data directory
+  local conf_target resolved_conf resolved_target conf_backup conf_ts
+  conf_target="$default_data/bitcoin.conf"
+  if [ "$default_conf" = "$conf_target" ]; then
+    echo -e "${GREEN}PASS${NC}: bitcoin.default_conf already resides within the datadir ($conf_target)"
+  else
+    if [ ! -e "$conf_target" ]; then
+      echo -e "${YELLOW}WARN${NC}: $conf_target not found; copying current config from $default_conf"
+      if cp -a "$default_conf" "$conf_target" 2>/dev/null; then
+        echo -e "${GREEN}PASS${NC}: Copied bitcoin.conf into $conf_target"
+      else
+        echo -e "${RED}FAIL${NC}: Unable to copy $default_conf into $conf_target; aborting."
+        return $EXIT_RUNTIME_ERROR
+      fi
+    fi
+
+    resolved_conf=$(readlink -f "$default_conf" 2>/dev/null || true)
+    resolved_target=$(readlink -f "$conf_target" 2>/dev/null || true)
+
+    if [ -L "$default_conf" ] && [ -n "$resolved_conf" ] && [ "$resolved_conf" = "$resolved_target" ] && [ -n "$resolved_target" ]; then
+      echo -e "${GREEN}PASS${NC}: $default_conf already links to $conf_target"
+    else
+      conf_ts=$(date -u +%Y%m%d_%H%M%S)
+      conf_backup="${default_conf}.backup_${conf_ts}"
+      if [ -e "$default_conf" ] || [ -L "$default_conf" ]; then
+        if cp -a "$default_conf" "$conf_backup" 2>/dev/null; then
+          echo -e "${GREEN}PASS${NC}: Backed up existing bitcoin.conf to $conf_backup"
+        else
+          echo -e "${YELLOW}WARN${NC}: Failed to back up $default_conf to $conf_backup (permissions?)"
+        fi
+      fi
+
+      if ln -sfn "$conf_target" "$default_conf" 2>/dev/null; then
+        echo -e "${GREEN}PASS${NC}: Linked $default_conf -> $conf_target"
+      else
+        echo -e "${RED}FAIL${NC}: Failed to create symlink $default_conf -> $conf_target"
+        return $EXIT_RUNTIME_ERROR
+      fi
     fi
   fi
 
