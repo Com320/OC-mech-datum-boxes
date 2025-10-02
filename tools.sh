@@ -20,7 +20,7 @@ if ! command -v jq &> /dev/null; then
         exit 1
     fi
 else
-    echo "jq is already installed."
+    echo ""
 fi
 
 source ./utils.sh
