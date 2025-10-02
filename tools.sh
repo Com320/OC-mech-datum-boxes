@@ -8,7 +8,7 @@ if ! command -v jq &> /dev/null; then
     read -p "Would you like to install jq? (y/n): " answer
     if [[ "$answer" =~ ^[Yy]$ ]]; then
         echo "Installing jq..."
-        sudo apt update && sudo apt install -y jq
+        apt update && apt install -y jq
         if [ $? -eq 0 ]; then
             echo "jq installed successfully."
         else
