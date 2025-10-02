@@ -2,6 +2,26 @@
 # OC Tools - Bulk Fix & Data Collection Utility
 # Sources utils.sh for logging and settings parsing
 
+# Check if jq is installed
+if ! command -v jq &> /dev/null; then
+    echo "jq is not installed."
+    read -p "Would you like to install jq? (y/n): " answer
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        echo "Installing jq..."
+        sudo apt update && sudo apt install -y jq
+        if [ $? -eq 0 ]; then
+            echo "jq installed successfully."
+        else
+            echo "Failed to install jq. Please install it manually."
+            exit 1
+        fi
+    else
+        echo "jq is required to proceed. Exiting."
+        exit 1
+    fi
+else
+    echo "jq is already installed."
+fi
 
 source ./utils.sh
 
