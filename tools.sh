@@ -1145,8 +1145,8 @@ fix_bitcoin_cli() {
       echo -e "${YELLOW}WARN${NC}: $bitcoin_dir is a symlink but target could not be resolved"
     fi
   elif [ -d "$bitcoin_dir" ]; then
-    if [ -d "$bitcoin_dir/.wallets" ] || [ -d "$bitcoin_dir/.wallet" ]; then
-      echo -e "${RED}FAIL${NC}: $bitcoin_dir contains wallet data (.wallets/.wallet); refusing to modify to avoid wallet loss."
+    if [ -d "$bitcoin_dir/wallets" ] || [ -d "$bitcoin_dir/wallet" ]; then
+      echo -e "${RED}FAIL${NC}: $bitcoin_dir contains wallet data (wallets/wallet); refusing to modify to avoid wallet loss."
       echo "Handle wallet migration manually before rerunning this fix."
       return $EXIT_ABORTED
     fi
