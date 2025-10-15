@@ -30,7 +30,6 @@ This project provides a collection of shell scripts that automate the process of
 - `welcomemsg.sh` - Displays the informational welcome message used by `main.sh`
 - `tools.sh` - Interactive maintenance toolkit for log collection, configuration checks, and service fixes
 - `troubleshoot-bitcoin-conf.sh` - Helpers to inspect and debug `bitcoin.conf`
-- `legacy/datum-all.sh` - Legacy convenience/collector script (kept for reference)
 
 ## Architecture
 
