@@ -11,6 +11,7 @@ This project provides a collection of shell scripts that automate the process of
 - Building DATUM Gateway from source
 - Generating appropriate configurations for both services
 - Setting up system services for automatic startup
+- Providing an interactive maintenance toolkit for post-install checks and log collection
 
 ## Scripts
 
@@ -27,7 +28,7 @@ This project provides a collection of shell scripts that automate the process of
 - `utils.sh` - Common utility functions used across all scripts
 - `verify-git-tag.sh` - Verifies GPG signatures on Git tags (used by the Bitcoin build)
 - `welcomemsg.sh` - Displays the informational welcome message used by `main.sh`
-- `tools.sh` - Miscellaneous helper tools and small utilities
+- `tools.sh` - Interactive maintenance toolkit for log collection, configuration checks, and service fixes
 - `troubleshoot-bitcoin-conf.sh` - Helpers to inspect and debug `bitcoin.conf`
 - `legacy/datum-all.sh` - Legacy convenience/collector script (kept for reference)
 
@@ -39,6 +40,7 @@ The scripts follow a modular architecture with the following key features:
 - **JSON Configuration**: All settings are managed through a single `settings.json` file
 - **Standardized Logging**: Consistent logging format with timestamps across all components
 - **Error Handling**: Scripts include robust error checking and reporting
+- **Maintenance Utilities**: `tools.sh` consolidates routine troubleshooting tasks into one menu-driven helper
 
 This architecture makes the codebase easier to maintain and extend.
 
@@ -87,6 +89,10 @@ This architecture makes the codebase easier to maintain and extend.
    ./main.sh
    ```
 
+6. **Run post-install maintenance tasks (optional):**
+
+   Use `tools.sh` for troubleshooting, log collection, or service validation once the base install completes (details below).
+
 ## Requirements
 
 - A Debian-based Linux distribution (Ubuntu, Debian, etc.)
@@ -115,6 +121,30 @@ The `settings.json` file contains key configuration parameters:
 - Required system packages for building and running the services
 
 Please review and customize this file before running the scripts.
+
+## Maintenance Toolkit (`tools.sh`)
+
+`tools.sh` is an interactive, menu-driven helper designed for day-two operations collecting diagnostics, validating configuration, and applying safe fixes without hunting for individual helper scripts.
+
+- **Run context**: Launch from the repository root (`cd /path/to/OC-mech-datum-boxes && ./tools.sh`) in a root login shell. Like `main.sh`, it will exit if invoked as `sudo ./tools.sh` to avoid permission mismatches. The script requires `jq` and benefits from `journalctl`, `systemctl`, and `bitcoin-cli` when available. 
+- **Core capabilities**: Collect redacted support bundles, rebuild `bitcoin.conf`, audit permissions, compare RPC credentials, retune the systemd service definition, repair `bitcoin-cli` symlinks, adjust DATUM log levels, and monitor chain sync progress in real time.
+- **Safe defaults**: Archival routines redact sensitive fields (such as `rpcauth`, DATUM RPC credentials, and API passwords) and stage changes with timestamped backups before modifying configs or services.
+
+- **Before running `tools.sh` (non-default installs):** If you cloned the repository to a non-default location or otherwise customized your environment, update `settings.json` so the toolkit can locate files and services correctly. At minimum verify:
+   - `scripts_path` points to the clone location of this repository
+   - `user.username` matches the unprivileged user that owns the bitcoin/datum installation
+   - `bitcoin.default_conf` and `bitcoin.default_data` point to your bitcoind configuration and datadir
+   - `logpath` points to a writable location for collecting logs
+
+   Quick checks using `jq` (run from the repository root):
+
+   ```bash
+   jq '.scripts_path, .user.username, .bitcoin.default_conf, .bitcoin.default_data, .logpath' settings.json
+   ```
+
+   If you need to edit values, open `settings.json` in your editor and adjust the fields above before invoking `./tools.sh`. Running `tools.sh` with incorrect paths can lead to missing files in collected bundles or failed checks; the script will prompt and warn when it cannot resolve important files but pre-adjusting `settings.json` reduces friction.
+
+When requesting support, running option `1` (log collection) produces a ready-to-share tarball in the current directory. Other numbered options can be revisited at any time; each action documents what it plans to do and prompts before applying changes that could disrupt services.
 
 ## Security Features
 
