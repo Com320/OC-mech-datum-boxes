@@ -2,7 +2,6 @@
 # OC Tools - Bulk Fix & Data Collection Utility
 # Sources utils.sh for logging and settings parsing
 
-
 source ./utils.sh
 
 # ------------------------------
@@ -33,10 +32,27 @@ EXIT_VALUE_INVALID=4
 EXIT_MISMATCH=5
 EXIT_RUNTIME_ERROR=6
 EXIT_ABORTED=7
+
 # Global dependency guard (fail fast if jq missing; many functions rely on it).
 if ! command -v jq >/dev/null 2>&1; then
-  echo -e "${RED}FATAL${NC}: 'jq' is required but not installed or not in PATH. Please install jq before using this script." >&2
-  exit $EXIT_CONFIG_OR_DEP_MISSING
+  echo -e "${YELLOW}WARN${NC}: 'jq' is required but not found in PATH."
+  if confirm_prompt "Install 'jq' now using apt? (y/n): " "y"; then
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update >/dev/null 2>&1 || true
+      apt-get install -y jq >/dev/null 2>&1
+      if ! command -v jq >/dev/null 2>&1; then
+        echo -e "${RED}FATAL${NC}: jq installation via apt failed or jq not in PATH. Please install jq manually and re-run." >&2
+        exit $EXIT_CONFIG_OR_DEP_MISSING
+      fi
+      echo -e "${GREEN}PASS${NC}: jq is installed and available."
+    else
+      echo -e "${RED}FATAL${NC}: apt-get not available to install jq. Please install jq manually and re-run." >&2
+      exit $EXIT_CONFIG_OR_DEP_MISSING
+    fi
+  else
+    echo -e "${RED}FATAL${NC}: 'jq' is required but not installed or not in PATH. Please install jq before using this script." >&2
+    exit $EXIT_CONFIG_OR_DEP_MISSING
+  fi
 fi
 
 # Require an actual root shell (not sudo invocation) similar to main.sh safeguards
