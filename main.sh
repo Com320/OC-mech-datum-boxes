@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/utils.sh"
 
 # Helper: print instructions to run a proper root shell, remove dirty marker, and exit
 require_root_shell() {
-  echo -e "${RED}This script must be run as root directly, not with 'sudo <script>'.${NC}"
+  echo -e "${RED}This script must be run from a root login shell, not by prefixing it with 'sudo <script>'.${NC}"
   echo "To switch to root, run one of the following:"
   echo "  sudo -i"
   echo "  su -"
@@ -47,13 +47,45 @@ else
   echo "jq is already installed."
 fi
 
-# Check if running as root, sudo, or neither
-if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+# Check if running as root and ensure we were NOT invoked via `sudo <script>`.
+#
+# Desired behavior:
+# - Allow: direct root login, `su -`, `sudo -i`.
+# - Block: `sudo ./main.sh` (and variants like `sudo bash -c ./main.sh`).
+is_root=0
+if [ "$(id -u)" -eq 0 ]; then
+  is_root=1
+fi
+
+invoked_via_sudo_directly=0
+if [ "$is_root" -eq 1 ] && [ -n "$SUDO_USER" ]; then
+  script_self="${BASH_SOURCE[0]}"
+  script_basename="$(basename "$script_self")"
+  script_realpath="$(readlink -f "$script_self" 2>/dev/null || echo "$script_self")"
+
+  parent_comm="$(ps -o comm= -p "$PPID" 2>/dev/null | tr -d '[:space:]')"
+
+  # Direct case: parent process is sudo (e.g. `sudo ./main.sh`).
+  if [ "$parent_comm" = "sudo" ]; then
+    invoked_via_sudo_directly=1
+  fi
+
+  # Robust case: SUDO_COMMAND contains the script name/path (e.g. `sudo bash -c ./main.sh`).
+  if [ -n "$SUDO_COMMAND" ]; then
+    case "$SUDO_COMMAND" in
+      *"$script_realpath"*|*"$script_self"*|*"$script_basename"*)
+        invoked_via_sudo_directly=1
+        ;;
+    esac
+  fi
+fi
+
+if [ "$is_root" -ne 1 ]; then
   require_root_shell
-elif [ "$(id -u)" -eq 0 ]; then
-  echo -e "${GREEN}Running as root (not via sudo).${NC}"
+elif [ "$invoked_via_sudo_directly" -eq 1 ]; then
+  require_root_shell
 else
-  require_root_shell
+  echo -e "${GREEN}Running as root (root login shell detected).${NC}"
 fi
 
 # Environment sanity check: ensure administrative tools like useradd are visible
