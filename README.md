@@ -111,6 +111,7 @@ The `settings.json` file contains key configuration parameters:
 - Build options:
    - `cpu_cores`: Number of CPU cores to use during compilation (speeds up build on multi-core systems)
    - `bitcoin_knots_tag`: GitHub tag to checkout for Bitcoin Knots (default: v28.1.knots20250305)
+   - `datum_gateway_tag`: Git ref (branch or tag) to checkout for Datum Gateway (default: main). If unset/empty, the build will pause and ask before falling back to `main`.
    - `verify_signatures`: Whether to verify Git tag signatures for Bitcoin Knots (default: true)
    - `key_fingerprint`: PGP key fingerprint used to verify signatures (default: 1A3E761F19D2CC7785C5502EA291A2C45D0C504A)
    - `run_tests`: Whether to run `make check` / unit tests during the Bitcoin Knots build (default: true)

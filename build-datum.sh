@@ -26,8 +26,23 @@ if [ ! -d "$user_home" ]; then
     exit 1
 fi
 
+# Read Datum Gateway tag/ref to checkout (prompt before falling back to "main")
+datum_gateway_tag=$(read_json_value "build_options.datum_gateway_tag" "$SETTINGS_FILE")
+if [ -z "$datum_gateway_tag" ]; then
+    log_display "${YELLOW}Could not determine datum_gateway_tag from settings.json.${NC}"
+    log_display "${YELLOW}Datum Gateway will be built from 'main' only if you confirm.${NC}"
+    if confirm_prompt "datum_gateway_tag is not set. Build Datum Gateway from 'main'? (y/n): " "n"; then
+        datum_gateway_tag="main"
+        log_display "${YELLOW}Proceeding with Datum Gateway ref: $datum_gateway_tag${NC}"
+    else
+        log_display "${RED}Aborting: datum_gateway_tag is not set and fallback to 'main' was not approved.${NC}"
+        exit 1
+    fi
+fi
+
 # Main Execution
 log_display "Starting Datum Gateway build process..."
+log_display "Datum Gateway ref/tag to build: ${GREEN}${datum_gateway_tag}${NC}"
 
 # Create source-code directory
 datum_dir="$user_home/datum"
@@ -59,6 +74,16 @@ fi
 gateway_dir="$src_dir/datum_gateway"
 log "Changing directory to datum_gateway..."
 cd "$gateway_dir" || { log "Failed to change directory to datum_gateway."; exit 1; }
+
+# Checkout the requested ref/tag
+log_display "Checking out Datum Gateway ref/tag: ${GREEN}${datum_gateway_tag}${NC}"
+if su - "$username" -c "cd $gateway_dir && git fetch --tags --force origin && git checkout $datum_gateway_tag" 2>>"$LOG_FILE"; then
+    log "Checkout completed successfully."
+else
+    log_display "${RED}Failed to checkout Datum Gateway ref/tag: $datum_gateway_tag${NC}"
+    log_display "${YELLOW}Tip: ensure build_options.datum_gateway_tag in settings.json matches a valid branch or tag in https://github.com/OCEAN-xyz/datum_gateway${NC}"
+    exit 1
+fi
 
 # Run cmake and make to compile the project (as the configured user)
 log "Running cmake..."
