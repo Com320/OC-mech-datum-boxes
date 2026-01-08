@@ -11,7 +11,7 @@
         "bitcoin_knots_tag": "v29.1.knots20250903",
         "verify_signatures": "true",
         "key_fingerprint": "1A3E761F19D2CC7785C5502EA291A2C45D0C504A",
-        "datum_gateway_tag": "v0.4.0beta"
+        "datum_gateway_tag": "v0.4.1beta"
     },
     "datum_options": {
         "coinbase_tag_primary": "DATUM",
