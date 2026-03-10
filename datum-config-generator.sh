@@ -131,6 +131,83 @@ confirm_input() {
     return 0
 }
 
+# Collect username split mappings (username_modifiers) interactively.
+# Result stored in global COLLECTED_USERNAME_MODIFIERS (JSON object).
+collect_username_modifiers() {
+    COLLECTED_USERNAME_MODIFIERS="{}"
+
+    log_display ""
+    log_display "${YELLOW}=== Username Split Mappings (username_modifiers) ===${NC}"
+    log_display "This feature lets a miner split their rewards across multiple Bitcoin addresses."
+    log_display "Miners activate a mapping by appending ~modifier_name to their Stratum username."
+    log_display "  Example: bc1qADDRESS.worker~mysplit"
+    log_display "Each mapping entry maps Bitcoin addresses to proportions that sum to 1.0."
+    log_display "Use an empty address ('') to represent the miner's own address from their username."
+    log_display "Requires pool_pass_full_users to be enabled (already set above)."
+    log_display ""
+
+    if ! confirm_prompt "Do you want to configure username split mappings? (y/n): "; then
+        log "User skipped username_modifiers configuration"
+        return 0
+    fi
+
+    local modifiers_json="{}"
+
+    while true; do
+        log_display ""
+        read -p "Enter modifier name (e.g. 'split50'): " modifier_name
+        if [ -z "$modifier_name" ]; then
+            log_display "${RED}Modifier name cannot be empty.${NC}"
+            continue
+        fi
+        log "Collecting addresses for modifier: $modifier_name"
+
+        log_display "Now add address/proportion pairs for modifier '${YELLOW}${modifier_name}${NC}'."
+        log_display "Proportions are decimals that should sum to 1.0 (e.g. 0.5 = 50%)."
+        log_display "Enter a Bitcoin address, 'own' for the miner's own address, or 'done' when finished."
+
+        local mapping_json="{}"
+
+        while true; do
+            read -p "  Address ('own' for miner's address, 'done' to finish): " addr_input
+            case "$addr_input" in
+                done|DONE)
+                    break
+                    ;;
+                own|OWN|"")
+                    addr=""
+                    ;;
+                *)
+                    addr="$addr_input"
+                    ;;
+            esac
+
+            while true; do
+                read -p "  Proportion for '${addr:-<miner own address>}' (e.g. 0.5): " pct
+                if [[ "$pct" =~ ^(0(\.[0-9]+)?|1(\.0+)?)$ ]]; then
+                    break
+                else
+                    log_display "${RED}  Enter a decimal between 0 and 1 (e.g. 0.5).${NC}"
+                fi
+            done
+
+            mapping_json=$(echo "$mapping_json" | jq --arg a "$addr" --argjson p "$pct" '. + {($a): $p}')
+            log "  Added address='${addr}' proportion=${pct} to modifier '${modifier_name}'"
+            log_display "  Current mapping: $(echo "$mapping_json" | jq -c .)"
+        done
+
+        modifiers_json=$(echo "$modifiers_json" | jq --arg n "$modifier_name" --argjson m "$mapping_json" '. + {($n): $m}')
+        log "Modifier '${modifier_name}' added"
+
+        if ! confirm_prompt "Add another modifier? (y/n): "; then
+            break
+        fi
+    done
+
+    COLLECTED_USERNAME_MODIFIERS="$modifiers_json"
+    log "username_modifiers collected: $COLLECTED_USERNAME_MODIFIERS"
+}
+
 # Show current user being used
 log_display "Using configuration for user: ${GREEN}$username${NC}"
 log_display "Home directory: ${GREEN}$user_home${NC}"
@@ -185,7 +262,16 @@ while true; do
   }
 }
 EOF
-)    # Show preview of the configuration
+)
+
+    # Collect username split mappings and merge into stratum section
+    collect_username_modifiers
+    if [ "$COLLECTED_USERNAME_MODIFIERS" != "{}" ]; then
+        json_content=$(echo "$json_content" | jq --argjson mods "$COLLECTED_USERNAME_MODIFIERS" '.stratum.username_modifiers = $mods')
+        log "username_modifiers merged into config"
+    fi
+
+    # Show preview of the configuration
     log_display "${GREEN}Configuration preview:${NC}"
     log_display "$json_content"
     
