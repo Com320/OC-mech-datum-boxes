@@ -92,6 +92,10 @@ fi
 
 log "Using Bitcoin binary path: $BITCOIN_BINARY"
 
+# Get init system
+init_sys=$(get_init_system)
+log "Using init system: $init_sys"
+
 # Get default_conf from settings.json
 default_conf=$(read_json_value "bitcoin.default_conf" "$SETTINGS_FILE")
 if [ -z "$default_conf" ]; then
@@ -159,9 +163,93 @@ else
     fi
 fi
 
-# Path to the template service file in the cloned Bitcoin Knots repository
-TEMPLATE_PATH="$user_home/bitcoin/src/bitcoin/contrib/init/bitcoind.service"
-log "Looking for template service file at: $TEMPLATE_PATH"
+if [ "$init_sys" = "sysvinit" ]; then
+    log "Creating sysvinit script at /etc/init.d/bitcoin_knots"
+    cat > /etc/init.d/bitcoin_knots << EOF
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          bitcoin_knots
+# Required-Start:    \$network \$local_fs \$remote_fs
+# Required-Stop:     \$network \$local_fs \$remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: starts bitcoin_knots
+# Description:       starts bitcoin_knots using start-stop-daemon
+### END INIT INFO
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=$BITCOIN_BINARY
+NAME=bitcoin_knots
+USER=$username
+DESC="Bitcoin Knots Service"
+CONFIG=$default_conf
+DATADIR=$default_data
+
+test -x \$DAEMON || exit 0
+
+set -e
+
+case "\$1" in
+  start)
+	echo -n "Starting \$DESC: "
+	start-stop-daemon --start --quiet --background --make-pidfile --pidfile /var/run/\$NAME.pid --chuid \$USER --exec \$DAEMON -- -conf=\$CONFIG -datadir=\$DATADIR -daemon=0
+	echo "\$NAME."
+	;;
+  stop)
+	echo -n "Stopping \$DESC: "
+	start-stop-daemon --stop --quiet --pidfile /var/run/\$NAME.pid --retry=TERM/30/KILL/5
+	echo "\$NAME."
+	;;
+  restart|force-reload)
+	echo -n "Restarting \$DESC: "
+	start-stop-daemon --stop --quiet --pidfile /var/run/\$NAME.pid --retry=TERM/30/KILL/5
+	sleep 1
+	start-stop-daemon --start --quiet --background --make-pidfile --pidfile /var/run/\$NAME.pid --chuid \$USER --exec \$DAEMON -- -conf=\$CONFIG -datadir=\$DATADIR -daemon=0
+	echo "\$NAME."
+	;;
+  status)
+    if [ -f /var/run/\$NAME.pid ]; then
+        pid=\$(cat /var/run/\$NAME.pid)
+        if ps -p \$pid > /dev/null; then
+            echo "\$NAME is running with pid \$pid"
+            exit 0
+        else
+            echo "\$NAME is not running (stale pid file)"
+            exit 1
+        fi
+    else
+        echo "\$NAME is not running"
+        exit 3
+    fi
+    ;;
+  *)
+	N=/etc/init.d/\$NAME
+	echo "Usage: \$N {start|stop|restart|force-reload|status}" >&2
+	exit 1
+	;;
+esac
+
+exit 0
+EOF
+    chmod 755 /etc/init.d/bitcoin_knots
+    log "sysvinit script created at /etc/init.d/bitcoin_knots"
+    
+    if confirm_prompt "Do you want to enable and start the service now? (y/n): "; then
+        log "User chose to enable and start the service"
+        update-rc.d bitcoin_knots defaults
+        /etc/init.d/bitcoin_knots start
+        log_display "${GREEN}Service enabled and started.${NC}"
+    else
+        log "User chose not to enable and start the service"
+        echo "You can manually start the service with: /etc/init.d/bitcoin_knots start"
+    fi
+    log "Bitcoin service generation completed."
+    exit 0
+else
+    # Existing systemd logic
+    # Path to the template service file in the cloned Bitcoin Knots repository
+    TEMPLATE_PATH="$user_home/bitcoin/src/bitcoin/contrib/init/bitcoind.service"
+    log "Looking for template service file at: $TEMPLATE_PATH"
 
 # Check if the template file exists
 if [ ! -f "$TEMPLATE_PATH" ]; then
@@ -386,6 +474,7 @@ if [ $? -ne 0 ]; then
     
     log_display "${YELLOW}Checking binary library dependencies:${NC}"
     ldd "$BITCOIN_BINARY" 2>&1 | tee -a "$LOG_FILE"
+fi
 fi
 
 log "Bitcoin service generation completed."

@@ -71,6 +71,8 @@ elif [ "$(id -u)" -ne 0 ]; then
   require_root_shell
 fi
 
+# Detect init system
+init_sys=$(get_init_system)
 
 # Wrapper to return a sanitized user home directory path suitable for
 # command-substitution. Some callers previously did `get_home_directory | tail -n1`
@@ -250,15 +252,37 @@ redact_rpcauth_inplace() {
   sed -i -E 's/^[[:space:]]*rpcauth[[:space:]]*=.*/rpcauth=<REDACTED>/' "$file" 2>/dev/null || true
 }
 
-# Capture service journal to file (requires root). Usage: capture_service_journal <service> <lines> <outfile>
+# Capture service journal or log file to file (requires root). Usage: capture_service_journal <service> <lines> <outfile>
 capture_service_journal() {
   local svc="$1" lines="$2" out="$3"
-  if ! command -v journalctl >/dev/null 2>&1; then
-    printf 'journalctl unavailable on system\n' > "$out"
-    return 0
+  
+  if [ "$init_sys" = "systemd" ] && command -v journalctl >/dev/null 2>&1; then
+    : > "$out" || return 0
+    journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
+  else
+    # Fallback for sysvinit or if journalctl is missing: try to find a relevant log file
+    local logf=""
+    if [[ "$svc" == *"bitcoin"* ]]; then
+        local btc_conf
+        if btc_conf=$(resolve_bitcoin_conf); then
+            local btc_datadir
+            if btc_datadir=$(read_bitcoin_datadir "$btc_conf"); then
+                logf="$btc_datadir/debug.log"
+            fi
+        fi
+    elif [[ "$svc" == *"datum"* ]]; then
+        local d_cfg
+        if d_cfg=$(resolve_datum_config_path); then
+            logf=$(resolve_datum_log_file "$d_cfg")
+        fi
+    fi
+
+    if [ -n "$logf" ] && [ -f "$logf" ]; then
+        tail -n "$lines" "$logf" > "$out" 2>/dev/null || printf '(could not read log file: %s)\n' "$logf" > "$out"
+    else
+        printf '(journalctl unavailable and log file not found for %s)\n' "$svc" > "$out"
+    fi
   fi
-  : > "$out" || return 0
-  journalctl -u "$svc" -n "$lines" --no-pager > "$out" 2>/dev/null || printf '(no journal entries or permission denied)\n' > "$out"
 }
 
 # Fetch datum log file path from config (stdout) if readable
@@ -273,25 +297,46 @@ resolve_datum_log_file() {
   printf '%s' "$logf"
 }
 
-# Show recent journal entries for a systemd service (last 5 lines).
+# Show recent journal entries or log file for a service (last 5 lines).
 # Usage: show_recent_journal <service>
 show_recent_journal() {
   local svc="$1"
-  if ! command -v journalctl >/dev/null 2>&1; then
-    echo -e "${YELLOW}WARN${NC}: journalctl not available; cannot show recent logs for $svc"
-    return 0
+  
+  if [ "$init_sys" = "systemd" ] && command -v journalctl >/dev/null 2>&1; then
+    echo "--- Recent logs: $svc (last 5 lines) ---"
+    # If running as root, call directly
+    if [ "$(id -u)" -eq 0 ]; then
+      journalctl -u "$svc" -n 5 --no-pager 2>/dev/null || echo "(no journal entries or permission denied)"
+      return 0
+    fi
+    echo -e "${YELLOW}WARN${NC}: journalctl requires elevated privileges to read $svc logs. Run tools.sh from a root shell to view output."
+    echo "If you need to check manually: journalctl -u $svc -n 5 --no-pager"
+  else
+    # Fallback for sysvinit: try to find a relevant log file
+    local logf=""
+    if [[ "$svc" == *"bitcoin"* ]]; then
+        local btc_conf
+        if btc_conf=$(resolve_bitcoin_conf); then
+            local btc_datadir
+            if btc_datadir=$(read_bitcoin_datadir "$btc_conf"); then
+                logf="$btc_datadir/debug.log"
+            fi
+        fi
+    elif [[ "$svc" == *"datum"* ]]; then
+        local d_cfg
+        if d_cfg=$(resolve_datum_config_path); then
+            logf=$(resolve_datum_log_file "$d_cfg")
+        fi
+    fi
+
+    if [ -n "$logf" ] && [ -f "$logf" ]; then
+        echo "--- Recent logs from file: $logf (last 5 lines) ---"
+        tail -n 5 "$logf" 2>/dev/null || echo "(could not read log file: $logf)"
+    else
+        echo "--- No logs found for $svc ---"
+        echo "(journalctl unavailable and log file not found)"
+    fi
   fi
-
-  echo "--- Recent logs: $svc (last 5 lines) ---"
-
-  # If running as root, call directly
-  if [ "$(id -u)" -eq 0 ]; then
-    journalctl -u "$svc" -n 5 --no-pager 2>/dev/null || echo "(no journal entries or permission denied)"
-    return 0
-  fi
-
-  echo -e "${YELLOW}WARN${NC}: journalctl requires elevated privileges to read $svc logs. Run tools.sh from a root shell to view output."
-  echo "If you need to check manually: journalctl -u $svc -n 5 --no-pager"
   return 0
 }
 
@@ -804,6 +849,12 @@ check_default_data_free_space() {
 
 apply_service_retooling() {
   echo -e "Applying service retooling to prevent lengthy startup..."
+
+  if [ "$init_sys" = "sysvinit" ]; then
+    echo -e "${YELLOW}WARN${NC}: Service retooling is currently only supported for systemd."
+    echo "For sysvinit, please manually edit /etc/init.d/bitcoin_knots if needed."
+    return $EXIT_SUCCESS
+  fi
 
   # Find existing systemd service file for bitcoin_knots or bitcoin
   local candidates=( "/etc/systemd/system/bitcoin_knots.service" "/usr/lib/systemd/system/bitcoin_knots.service" "/lib/systemd/system/bitcoin_knots.service" "/etc/systemd/system/bitcoin.service" "/usr/lib/systemd/system/bitcoin.service" "/lib/systemd/system/bitcoin.service" )
@@ -1425,20 +1476,28 @@ set_datum_log_level() {
   # Notify about restart
   echo
   echo "To apply the change you must restart the datum service. This may force connected miners to reconnect (potentially large volume)."
-  if confirm_prompt "Restart datum.service now? (y/n): " "n"; then
-    if command -v systemctl >/dev/null 2>&1; then
+  if confirm_prompt "Restart datum service now? (y/n): " "n"; then
+    if [ "$init_sys" = "systemd" ] && command -v systemctl >/dev/null 2>&1; then
       if systemctl restart datum.service 2>/dev/null; then
         echo -e "${GREEN}PASS${NC}: datum.service restarted successfully."
       else
-        echo -e "${RED}FAIL${NC}: Failed to restart datum.service (permissions or service name?). Run: systemctl restart datum.service"
+        echo -e "${RED}FAIL${NC}: Failed to restart datum.service. Run: systemctl restart datum.service"
+      fi
+    elif [ "$init_sys" = "sysvinit" ]; then
+      if service datum restart 2>/dev/null || /etc/init.d/datum restart 2>/dev/null; then
+        echo -e "${GREEN}PASS${NC}: datum service restarted successfully."
+      else
+        echo -e "${RED}FAIL${NC}: Failed to restart datum service. Run: service datum restart"
       fi
     else
-      echo -e "${YELLOW}WARN${NC}: systemctl not available; restart manually: systemctl restart datum.service"
+      echo -e "${YELLOW}WARN${NC}: Service manager not detected; restart manually."
     fi
   else
-    echo "To restart the service later and apply changes run:"
-    echo "  systemctl restart datum.service"
-    echo "Be aware restarting may cause miners to reconnect."
+    if [ "$init_sys" = "systemd" ]; then
+      echo "To restart the service later and apply changes run: systemctl restart datum.service"
+    else
+      echo "To restart the service later and apply changes run: service datum restart"
+    fi
   fi
 }
 

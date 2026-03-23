@@ -105,7 +105,7 @@ fi
 # Show current user being used
 log_display "Using configuration for user: ${GREEN}$username${NC}"
 log_display "Home directory: ${GREEN}$user_home${NC}"
-log_display "Using system locations by default for improved compatibility with systemd services"
+log_display "Using system locations by default for improved compatibility with system services"
 
 # Prompt the user for their inputs
 while true; do
@@ -239,7 +239,7 @@ EOF
 # Set ownership
 chown "$username:$username" "$conf_file"
 
-# Set permissions to ensure bitcoind can read the file when run by systemd
+# Set permissions to ensure bitcoind can read the file when run as a service
 # chmod 600 (owner read-write only) is appropriate for config files with credentials
 chmod 600 "$conf_file"
 log "Set permissions on bitcoin.conf to 600 (owner read-write only)"

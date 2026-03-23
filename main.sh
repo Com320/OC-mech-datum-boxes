@@ -108,6 +108,23 @@ echo "$(date '+%Y-%m-%d %H:%M:%S')" > "$DIRTY_MARKER"
 # Initialize logging
 init_logging "main"
 
+# Get and confirm init system
+init_sys=$(get_init_system)
+log_display "Detected init system: ${GREEN}$init_sys${NC}"
+if ! confirm_prompt "Do you want to use this init system? (y/n): "; then
+    while true; do
+        read -p "Enter init system (systemd/sysvinit): " new_init_sys
+        if [[ "$new_init_sys" == "systemd" || "$new_init_sys" == "sysvinit" ]]; then
+            init_sys=$new_init_sys
+            update_json_value "init_system" "$init_sys" "$SETTINGS_FILE"
+            log_display "Updated init system to: ${GREEN}$init_sys${NC}"
+            break
+        else
+            echo -e "${RED}Invalid init system. Please enter 'systemd' or 'sysvinit'.${NC}"
+        fi
+    done
+fi
+
 ERRORS=0
 ERROR_LOG=""
 
