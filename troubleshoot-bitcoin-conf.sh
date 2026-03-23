@@ -42,6 +42,9 @@ fi
 
 log "Using home directory: $user_home"
 
+# Detect init system
+init_sys=$(get_init_system)
+
 # Check Bitcoin configuration
 conf_path="$user_home/.bitcoin/bitcoin.conf"
 conf_dir="$user_home/.bitcoin"
@@ -117,15 +120,22 @@ fi
 
 # Check that the service is actually using the bitcoin user
 log_display "\n${GREEN}===== Service Configuration =====${NC}"
-if [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
+if [ "$init_sys" = "systemd" ] && [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
     service_user=$(grep "^User=" "/etc/systemd/system/bitcoin_knots.service" | cut -d'=' -f2)
     log_display "Service configured to run as user: $service_user"
     
     if [ "$service_user" != "$username" ]; then
         log_display "${RED}WARNING: Service user ($service_user) doesn't match expected user ($username)!${NC}"
     fi
+elif [ "$init_sys" = "sysvinit" ] && [ -f "/etc/init.d/bitcoin_knots" ]; then
+    service_user=$(grep "^USER=" "/etc/init.d/bitcoin_knots" | cut -d'=' -f2)
+    log_display "Service configured to run as user: $service_user"
+    
+    if [ "$service_user" != "$username" ]; then
+        log_display "${RED}WARNING: Service user ($service_user) doesn't match expected user ($username)!${NC}"
+    fi
 else
-    log_display "${RED}Bitcoin service file not found!${NC}"
+    log_display "${RED}Bitcoin service or init script not found!${NC}"
 fi
 
 # Offer to fix the issues
@@ -219,10 +229,14 @@ EOF
         chmod -R 750 "/var/lib/bitcoind"
         
         # Update service to use this config
-        if [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
-            log_display "Updating service to use system config location..."
+        if [ "$init_sys" = "systemd" ] && [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
+            log_display "Updating systemd service to use system config location..."
             sed -i "s|^ExecStart=.*|ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind|" "/etc/systemd/system/bitcoin_knots.service"
             systemctl daemon-reload
+        elif [ "$init_sys" = "sysvinit" ] && [ -f "/etc/init.d/bitcoin_knots" ]; then
+            log_display "Updating sysvinit script to use system config location..."
+            sed -i "s|^CONFIG=.*|CONFIG=/etc/bitcoin/bitcoin.conf|" "/etc/init.d/bitcoin_knots"
+            sed -i "s|^DATADIR=.*|DATADIR=/var/lib/bitcoind|" "/etc/init.d/bitcoin_knots"
         fi
         
         log_display "${GREEN}System config setup complete.${NC}"
@@ -258,20 +272,35 @@ EOF
 esac
 
 # Try to restart the service if it exists
-if [ -f "/etc/systemd/system/bitcoin_knots.service" ] && [ "$fix_option" != "4" ]; then
-    log_display "\n${GREEN}===== Restarting Service =====${NC}"
-    log_display "Attempting to restart Bitcoin service..."
-    systemctl daemon-reload
-    systemctl restart bitcoin_knots.service
-    sleep 3
-    
-    # Check if service started successfully
-    systemctl is-active --quiet bitcoin_knots.service
-    if [ $? -eq 0 ]; then
-        log_display "${GREEN}Service started successfully!${NC}"
-    else
-        log_display "${RED}Service failed to start. Current status:${NC}"
-        systemctl status bitcoin_knots.service
+if [ "$fix_option" != "4" ]; then
+    if [ "$init_sys" = "systemd" ] && [ -f "/etc/systemd/system/bitcoin_knots.service" ]; then
+        log_display "\n${GREEN}===== Restarting Service =====${NC}"
+        log_display "Attempting to restart Bitcoin service..."
+        systemctl daemon-reload
+        systemctl restart bitcoin_knots.service
+        sleep 3
+        
+        # Check if service started successfully
+        systemctl is-active --quiet bitcoin_knots.service
+        if [ $? -eq 0 ]; then
+            log_display "${GREEN}Service started successfully!${NC}"
+        else
+            log_display "${RED}Service failed to start. Current status:${NC}"
+            systemctl status bitcoin_knots.service
+        fi
+    elif [ "$init_sys" = "sysvinit" ] && [ -f "/etc/init.d/bitcoin_knots" ]; then
+        log_display "\n${GREEN}===== Restarting Service =====${NC}"
+        log_display "Attempting to restart Bitcoin service..."
+        service bitcoin_knots restart
+        sleep 3
+        
+        # Check if service started successfully
+        if service bitcoin_knots status > /dev/null 2>&1; then
+            log_display "${GREEN}Service started successfully!${NC}"
+        else
+            log_display "${RED}Service failed to start. Checking logs...${NC}"
+            tail -n 20 "$data_dir/debug.log"
+        fi
     fi
 fi
 

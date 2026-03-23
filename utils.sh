@@ -378,6 +378,44 @@ get_home_directory() {
     echo "$home_dir"
 }
 
+# Get the init system from settings or detect it
+# Usage: get_init_system
+get_init_system() {
+    local init_sys
+    init_sys=$(read_json_value "init_system" "$SETTINGS_FILE")
+
+    if [ -n "$init_sys" ]; then
+        log "Using init system from settings.json: $init_sys"
+    else
+        # Auto-detect if not specified
+        # Standard indicators for systemd (PID 1 or /run/systemd/system)
+        if ps -p 1 -o comm= 2>/dev/null | grep -q "systemd"; then
+            init_sys="systemd"
+        elif [ -d /run/systemd/system ]; then
+            init_sys="systemd"
+        elif [ -f /proc/1/comm ] && grep -q "systemd" /proc/1/comm; then
+            init_sys="systemd"
+        elif ps -p 1 -o comm= 2>/dev/null | grep -q "init"; then
+            # 'init' is typically sysvinit (Devuan) or openrc. 
+            # Check if /sbin/init is a symlink to systemd to be absolutely sure.
+            if readlink -f /sbin/init 2>/dev/null | grep -q "systemd"; then
+                init_sys="systemd"
+            else
+                init_sys="sysvinit"
+            fi
+        else
+            # Default to systemd if unsure
+            init_sys="systemd"
+        fi
+        log "Auto-detected init system: $init_sys"
+    fi
+
+    # Export for subshells
+    export GET_INIT_SYSTEM="$init_sys"
+    echo "$init_sys"
+}
+export -f get_init_system
+
 # Function to test utils.sh when run directly
 test_utils() {
     echo -e "\n${GREEN}===== Utility Functions Test =====${NC}\n"

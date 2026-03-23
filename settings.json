@@ -3,6 +3,7 @@
         "username": "bitcoin",
         "create_if_not_exists": "true"
     },
+    "init_system": "",
     "logpath": "datum_instlogs",
     "scripts_path": "/root/OC-mech-datum-boxes",
     "build_options": {
