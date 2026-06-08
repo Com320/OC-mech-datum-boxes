@@ -250,7 +250,8 @@ if [ "$USE_CMAKE" = true ]; then
     cmake_args=(
         -DBUILD_TESTS=OFF \
         -DBUILD_WALLET_TOOL=OFF \
-        -DWITH_ZMQ=OFF
+        -DWITH_ZMQ=OFF \
+        -DRDTS_CONSENT=IMPLICIT
     )
 
     # If tests requested, adjust
