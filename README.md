@@ -1,22 +1,18 @@
-# DATUM Box Setup Scripts
-
-## Project status
+# Project status
 
 This repository is no longer maintained.
 
-The solutions previously provided here have been superseded by packages now available through the official Debian Backports repositories. These packages are also expected to be included in future Debian releases, including Debian 14 "forky".
+The solutions previously provided here have been superseded by packages now available through the official Debian Trixie Backports repository. These packages are also expected to be included by default in future Debian releases, including Debian 14 "forky".
 
-### Using Debian Backports
+## Using Debian Trixie Backports
 
-On an existing Debian installation, enable Backports by adding a backports source for your Debian release:
+On an existing Debian Trixie installation, enable Backports by adding the Trixie Backports source:
 
 ```bash
-. /etc/os-release
-
 sudo tee /etc/apt/sources.list.d/debian-backports.sources >/dev/null <<EOF
 Types: deb
 URIs: http://deb.debian.org/debian
-Suites: ${VERSION_CODENAME}-backports
+Suites: trixie-backports
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
@@ -24,13 +20,8 @@ EOF
 sudo apt update
 ```
 
-Then install the needed package from Backports:
+Then install the needed package from Trixie Backports:
 
 ```bash
-sudo apt install -t "${VERSION_CODENAME}-backports" <package-name>
+sudo apt install -t trixie-backports <package-name>
 ```
-
-For example, Debian 13 uses `trixie-backports`, while Debian 12 uses `bookworm-backports`.
-
-
-
